@@ -1,0 +1,19 @@
+# Virtualenv and caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# Local, personal, never committed:
+#   parent_names.txt  — real family names used for the allowance rule
+#   category_overrides.json — learned fixes derived from your own statements
+data/
+
+# Your own statements and any workbook exported from them
+statements/
+*.xlsx
+!sample_data/*.xlsx
+
+# Editor / assistant local settings
+.claude/settings.local.json
