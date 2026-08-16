@@ -46,6 +46,30 @@ Run the tests with:
 .venv/bin/python -m pytest tests -q
 ```
 
+### On another machine
+
+Clone and run — `run.sh` builds the virtualenv and installs everything on first
+launch:
+
+```bash
+git clone git@github.com:<you>/personal-finance-tracker.git && cd personal-finance-tracker && ./run.sh
+```
+
+Needs Python 3.9 or newer. Two escape hatches if the machine is awkward:
+`PFT_PYTHON=python3.12 ./run.sh` picks a specific interpreter, and
+`PFT_PIP_INDEX=<url> ./run.sh` uses your own package mirror — useful on a work
+machine whose `PIP_INDEX_URL` points at a corporate index that is unreachable
+off-VPN.
+
+**What does not travel with the repo, by design:** the `data/` folder, which
+holds `parent_names.txt` and the learned category fixes in
+`category_overrides.json`. Both are derived from your own statements, so they
+are gitignored and stay on the machine that made them. On a new machine, retype
+the allowance names in the sidebar once; the file is written for you. Your
+statements are never in the repo either — keep them wherever you like and point
+the loader at that folder.
+
+
 ---
 
 ## What you upload
