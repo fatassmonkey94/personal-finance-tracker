@@ -17,3 +17,6 @@ statements/
 
 # Editor / assistant local settings
 .claude/settings.local.json
+
+# Wireframe working files (design review, not part of the app)
+.design/
