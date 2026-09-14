@@ -1047,7 +1047,7 @@ elif view_kind == YEAR_VIEW:
             return
         chart = alt.Chart(frame).transform_calculate(
             AmountLabel="format(datum.Amount, ',.2f')"
-        ).mark_arc(innerRadius=58, outerRadius=96, stroke="#0B0C0E",
+        ).mark_arc(innerRadius=32, outerRadius=104, stroke="#0B0C0E",
                    strokeWidth=2).encode(
             theta=alt.Theta("Amount:Q", stack=True),
             color=alt.Color(
@@ -1061,12 +1061,38 @@ elif view_kind == YEAR_VIEW:
             tooltip=[alt.Tooltip(f"{label_field}:N", title=title),
                      alt.Tooltip("AmountLabel:N", title="Amount (SGD)")],
         )
+        # The height Streamlit passes is the whole block, legend included, and
+        # Vega does not count arc marks when it lays the view out — so a height
+        # that only covers the legend leaves the ring clipped at the top and
+        # drawn over the legend beneath (measured: the twelve-entry Expenses
+        # legend overlapped its own pie by 48px). Reserve the ring's 208px plus
+        # a measured 22px per legend row. Per-chart rather than one shared
+        # height, so the plotting area is identical across the three and the
+        # rings line up as a row while each legend runs as long as it needs.
         st.altair_chart(
-            chart.properties(height=290)
+            chart.properties(height=2 * 104 + 56 + 22 * len(frame))
                  .configure_view(strokeWidth=0)
                  .configure_legend(labelColor="#C6CBD3"),
             use_container_width=True,
         )
+
+    # Income is coloured by what the money *is*, not by how big the slice is, so
+    # the wedges keep their meaning as sources come and go: green is cash that
+    # reached your bank, the blues are CPF (yours, but not spendable this month),
+    # amber is everything that is not salary. Keying by name rather than position
+    # matters because a source with no amount drops out of the frame entirely —
+    # a positional range would slide amber onto CPF in a month with no interest.
+    INCOME_TONES = {
+        "Salary credited": "#3FBF7F",
+        "CPF — employee share": "#4E9DD6",
+        "CPF — employer share": "#7C74D9",
+        "Additional income": "#E0A93F",
+    }
+    INCOME_FALLBACK = "#5C6470"
+
+    def income_colours(frame):
+        return [INCOME_TONES.get(source, INCOME_FALLBACK)
+                for source in frame["Source"]]
 
     # Cool tones for fixed commitments, warm for discretionary spending, so the
     # split the brief asks about reads off the wheel without a second legend.
@@ -1082,7 +1108,7 @@ elif view_kind == YEAR_VIEW:
 
     pie_cols = st.columns(3, gap="large")
     with pie_cols[0]:
-        donut(income, "Source", ["#7DD3C0", "#4FB39E", "#2E8C79", "#1E6B5B"],
+        donut(income, "Source", income_colours(income),
               summary.total_revenue, "Income",
               "Revenue by source, CPF included")
     with pie_cols[1]:
