@@ -16,21 +16,23 @@ from typing import List, Optional, Tuple
 from .model import (
     CAT_ADDITIONAL_INCOME,
     CAT_CARD_PAYMENT,
-    CAT_DINING,
-    CAT_FOOD_DELIVERY,
+    CAT_EXPERIENCES,
+    CAT_FOOD,
     CAT_GROCERIES,
     CAT_INSURANCE,
     CAT_INTERNAL_TRANSFER,
-    CAT_OTHER,
     CAT_PARENTS,
-    CAT_RECREATION,
     CAT_SALARY,
     CAT_SHOPPING,
     CAT_SUBSCRIPTIONS,
+    CAT_TAX,
     CAT_TELCO,
-    CAT_TRANSPORT,
-    CAT_TRAVEL,
+    CAT_TRANSPORT_CAB,
+    CAT_TRANSPORT_CAR,
+    CAT_TRANSPORT_PUBLIC,
+    CAT_UNCATEGORISED,
     CAT_UNCLASSIFIED_TRANSFER,
+    migrate_category,
     CREDIT,
     DEBIT,
 )
@@ -188,7 +190,7 @@ def build_rules(parent_names: Optional[List[str]] = None,
             "DELIVEROO", "ODDLE", "WHYQ", "CHOPE DELIVERY", "GRABMART", "GRAB MART",
             "DELIVERY HERO", "SHOPEEFOOD", "SHOPEE FOOD", "LALAMOVE FOOD",
         ) + r"|GRAB\w*\s*FOOD|\bFOOD\s*DELIVERY\b)",
-        CAT_FOOD_DELIVERY, DEBIT,
+        CAT_FOOD, DEBIT,
     ))
 
     # -- Variable: travel (before transport: airlines/hotels are not commuting)
@@ -216,7 +218,7 @@ def build_rules(parent_names: Optional[List[str]] = None,
         r"\bBOARDING\b|\bFOREX\b|\bMONEY\s*CHANGER\b|"
         # Stem, not whole word: exports truncate "YOU TECHNOLOGIES GROUP".
         r"\bYOU\s*TECHNOLOG)",
-        CAT_TRAVEL, DEBIT,
+        CAT_EXPERIENCES, DEBIT,
     ))
 
     # -- Excluded: money moving to or from your own investment accounts ------
@@ -239,23 +241,45 @@ def build_rules(parent_names: Optional[List[str]] = None,
         CAT_INTERNAL_TRANSFER, None,
     ))
 
-    # -- Variable: transport ------------------------------------------------
+    # -- Variable: transport, in three lines -------------------------------
+    # Cabs first: a ride-hailing app is a named brand, and the car and public
+    # lists below carry generic words ("SERVICING", "BUS") that a brand name
+    # could otherwise collide with.
     rules.append((
-        "transport",
+        "transport-cab",
         r"(" + _alt(
             "GRAB", "GRABPAY RIDE", "GRABTAXI", "GOJEK", "TADA", "RYDE", "ZIG",
             "COMFORTDELGRO", "COMFORT DELGRO", "CDG TAXI", "TRANS CAB", "PREMIER TAXI",
-            "SMRT", "SBS TRANSIT", "TRANSITLINK", "TRANSIT LINK", "SIMPLYGO",
-            "EZ LINK", "EZLINK", "NETS FLASHPAY", "NETS TOPUP", "NETS TOP UP",
-            "FLASHPAY", "CONCESSION", "BUS SERVICE", "LTA ", "ONE MOTORING",
+            "PRIME TAXI", "STRIDES", "SMRT TAXI", "UBER",
+        ) + r")",
+        CAT_TRANSPORT_CAB, DEBIT,
+    ))
+
+    # Running a car: fuel, servicing, parking, and the road charges that only a
+    # car owner pays. Car-sharing sits here rather than with cabs — you are
+    # driving it yourself, and it is priced like a rental, not a fare.
+    rules.append((
+        "transport-car",
+        r"(" + _alt(
             "VICOM", "MOTORIST SG", "CARRO", "GETGO", "BLUESG", "TRIBECAR", "SHARIOT",
             "SHELL", "ESSO", "CALTEX", "SINOPEC", "SPC ", "SINGAPORE PETROLEUM",
             "PETROL", "FUEL", "TYRE", "TYRES", "MOTOR WORKSHOP", "AUTO WORKSHOP",
             "CAR WORKSHOP", "AUTOMOBILE", "SERVICING", "CAR SERVICING", "CARPARK",
             "CAR PARK", "PARKING", "HDB PARKING", "URA PARKING", "WILSON PARKING",
             "EPS PARKING", "SEASON PARKING", "ERP ", "COE ", "ROAD TAX",
+            "LTA ", "ONE MOTORING", "CAR INSURANCE", "WORKSHOP",
+        ) + r")",
+        CAT_TRANSPORT_CAR, DEBIT,
+    ))
+
+    rules.append((
+        "transport-public",
+        r"(" + _alt(
+            "SMRT", "SBS TRANSIT", "TRANSITLINK", "TRANSIT LINK", "SIMPLYGO",
+            "EZ LINK", "EZLINK", "NETS FLASHPAY", "NETS TOPUP", "NETS TOP UP",
+            "FLASHPAY", "CONCESSION", "BUS SERVICE",
         ) + r"|\bTOP[\s-]*UP\s*NETS\b)",
-        CAT_TRANSPORT, DEBIT,
+        CAT_TRANSPORT_PUBLIC, DEBIT,
     ))
 
     # -- Variable: groceries (before dining: FairPrice is not a restaurant) --
@@ -295,7 +319,7 @@ def build_rules(parent_names: Optional[List[str]] = None,
             "AESTHETIC", "DERMATOLOGY", "SALON", "HAIRDRESS", "BARBER", "NAIL",
             "BEAUTY", "FACIAL", "SUPPLEMENT", "GNC", "NATURE'S FARM", "IHERB",
         ) + r"|\bHEALTH\b|\bFITNESS\s*CLASS\b|\bRECREATION\b)",
-        CAT_RECREATION, DEBIT,
+        CAT_EXPERIENCES, DEBIT,
     ))
 
     # -- Variable: dining ---------------------------------------------------
@@ -331,7 +355,7 @@ def build_rules(parent_names: Optional[List[str]] = None,
         r"\bGASTROPUB\b|\bPATISSERIE\b|\bCREPERIE\b|\bFRIED\s*CHICKEN\b|"
         r"\bDIM\s*SUM\b|\bCANTEEN\b|\bFOOD\s*HALL\b|\bEATING\s*HOUSE\b|"
         r"\bTEA\s*HOUSE\b|\bJUICE\s*BAR\b|\bCHAR\s*SIEW\b|\bSATAY\b)",
-        CAT_DINING, DEBIT,
+        CAT_FOOD, DEBIT,
     ))
 
     # -- Variable: shopping -------------------------------------------------
@@ -362,9 +386,14 @@ def build_rules(parent_names: Optional[List[str]] = None,
     # show up in Singapore shop names as locations — "GIANT-SIMEI MRT" is a
     # supermarket, not a train fare — so a named merchant must win first.
     rules.append((
-        "transport-generic",
-        r"(\bMRT\b|\bLRT\b|\bBUS\b|\bTAXI\b|\bTRAIN\s*FARE\b|\bFARE\b)",
-        CAT_TRANSPORT, DEBIT,
+        "transport-generic-cab",
+        r"(\bTAXI\b|\bCAB\s*FARE\b)",
+        CAT_TRANSPORT_CAB, DEBIT,
+    ))
+    rules.append((
+        "transport-generic-public",
+        r"(\bMRT\b|\bLRT\b|\bBUS\b|\bTRAIN\s*FARE\b|\bFARE\b)",
+        CAT_TRANSPORT_PUBLIC, DEBIT,
     ))
 
     # -- Utilities / misc that fall to Other, plus card fees ----------------
@@ -373,16 +402,21 @@ def build_rules(parent_names: Optional[List[str]] = None,
                      r"FINANCE\s*CHARGE|INTEREST\s*CHARGE|\bGST\b\s*ON|CASH\s*ADVANCE\s*FEE|"
                      r"FOREIGN\s*(CURRENCY\s*)?TRANSACTION\s*FEE|\bADMIN\s*FEE\b|"
                      r"(CCY|CURRENCY)\s*CONVERSION\s*FEE|\bGST\s*ON\b|"
-                     r"\bFALL\s*BELOW\s*FEE\b)", CAT_OTHER, DEBIT),
+                     r"\bFALL\s*BELOW\s*FEE\b)", CAT_UNCATEGORISED, DEBIT),
+        # Tax is a fixed commitment, not a stray debit. It sits before the
+        # utilities rule because IRAS appears in both and the Fixed line wins.
+        ("tax", r"(\bIRAS\b|\bPROPERTY\s*TAX\b|\bINCOME\s*TAX\b|"
+                r"\bTAX\s*(PAYMENT|INSTAL?MENT|RETURN)\b|\bGIRO\s*IRAS\b|"
+                r"\bINLAND\s*REVENUE\b)", CAT_TAX, DEBIT),
         ("utilities", r"(\bSP\s*(SERVICES|GROUP|POWER)\b|\bPUB\s*UTILIT|\bUTILITIES\b|"
                       r"\bCITY\s*ENERGY\b|\bGENECO\b|\bKEPPEL\s*ELECTRIC\b|\bSENOKO\b|"
                       r"\bTUAS\s*POWER\b|\bSEMBCORP\s*POWER\b|\bELECTRICITY\b|"
                       r"\bTOWN\s*COUNCIL\b|\bS\s*C\s*C\s*\b|\bCONSERVANCY\b|"
-                      r"\bHDB\b|\bMORTGAGE\b|\bHOME\s*LOAN\b|\bRENT\b|\bIRAS\b|"
-                      r"\bPROPERTY\s*TAX\b|\bINCOME\s*TAX\b|\bCPF\s*(TOP|CONTRIB)|\bSRS\b)",
-         CAT_OTHER, DEBIT),
+                      r"\bHDB\b|\bMORTGAGE\b|\bHOME\s*LOAN\b|\bRENT\b|"
+                      r"\bCPF\s*(TOP|CONTRIB)|\bSRS\b)",
+         CAT_UNCATEGORISED, DEBIT),
         ("atm-cash", r"(\bATM\b|CASH\s*WITHDRAWAL|CASH\s*WDL|\bWDL\b|CASH\s*ADVANCE)",
-         CAT_OTHER, DEBIT),
+         CAT_UNCATEGORISED, DEBIT),
     ]
 
     # -- PayNow / generic transfers: dining per spec, but flagged ------------
@@ -390,13 +424,13 @@ def build_rules(parent_names: Optional[List[str]] = None,
         ("paynow-out", r"(\bPAYNOW\b|\bPAY\s*NOW\b|\bPAYLAH\b|\bPAY\s*LAH\b|"
                        r"\bFAST\s*PAYMENT\b|\bIBG\b|\bFUNDS?\s*TRANSFER\b|"
                        r"\bTRANSFER\s*TO\b|\bBILL\s*PAYMENT\b|\bGIRO\b|"
-                       r"\bMEPS\b|\bIBFT\b|\bTELEGRAPHIC\s*TRANSFER\b)", CAT_DINING, DEBIT),
+                       r"\bMEPS\b|\bIBFT\b|\bTELEGRAPHIC\s*TRANSFER\b)", CAT_FOOD, DEBIT),
         ("paynow-in", r"(\bPAYNOW\b|\bPAY\s*NOW\b|\bPAYLAH\b|\bINCOMING\b|"
                       r"\bTRANSFER\s*FROM\b|\bFUNDS?\s*TRANSFER\b|\bIBG\b|\bFAST\b)",
          CAT_ADDITIONAL_INCOME, CREDIT),
         ("refund", r"(\bREFUND\b|\bREVERSAL\b|\bREVERSED\b|\bFEE\s*REV\b|"
                     r"\bCHARGEBACK\b|\bCREDIT\s*ADJUSTMENT\b)",
-         CAT_OTHER, CREDIT),
+         CAT_UNCATEGORISED, CREDIT),
     ]
 
     return rules
@@ -417,7 +451,8 @@ LOW_CONFIDENCE_RULES = {
 # so the money comes back off the category it was spent from.
 MERCHANT_RULES = {
     "insurance", "telco", "subscriptions", "food-delivery", "travel",
-    "transport", "groceries", "recreation", "dining", "shopping",
+    "transport-cab", "transport-car", "transport-public",
+    "groceries", "recreation", "dining", "shopping", "tax",
 }
 
 
@@ -475,13 +510,13 @@ class Categoriser:
                             f"assign it a category.",
                         )
                 if name == "paynow-out":
-                    note = "Transfer out — assumed Food & Dining per your rule; confirm."
+                    note = "Transfer out — assumed Food per your rule; confirm."
                 elif name == "paynow-in":
                     note = "Incoming transfer — counted as additional income; confirm."
                 elif name == "atm-cash":
-                    note = "Cash withdrawal — parked in Other; recategorise if you know the spend."
+                    note = "Cash withdrawal — left uncategorised; assign it if you know the spend."
                 elif name == "utilities":
-                    note = "Household/tax/utility item — parked in Other."
+                    note = "Household or utility item — no line exists for it, so it is left uncategorised."
                 elif name == "refund":
                     # Send the money back to whatever category it was spent from,
                     # so the refund nets off that line instead of sitting in Other.
@@ -491,7 +526,7 @@ class Categoriser:
                                 "Refund — netted off the original category.")
                     note = "Refund — offsets its category; move it to the right one."
                 elif name == "bank-fee":
-                    note = "Bank or card fee — parked in Other."
+                    note = "Bank or card fee — left uncategorised."
                 return category, name, needs_review, note
 
         # 3. A credit that names a merchant is almost always a refund of that
@@ -513,7 +548,7 @@ class Categoriser:
                     f"to include it.",
                 )
             return CAT_ADDITIONAL_INCOME, "", True, "Unmatched credit — verify it is income."
-        return CAT_OTHER, "", True, "No rule matched — please categorise."
+        return CAT_UNCATEGORISED, "", True, "No rule matched — please categorise."
 
     def _merchant_category(self, upper_text: str) -> Optional[str]:
         """Which merchant rule does this text hit, ignoring direction?"""
@@ -542,12 +577,26 @@ def merchant_key(raw_description: str) -> str:
 
 
 def _load_overrides(path) -> dict:
+    """Your saved merchant fixes, with old category names brought forward.
+
+    An override stores a category *name*, so renaming or merging a category
+    would strand every fix pointing at the old one. Anything migrate_category
+    declines to map — "Transport", which split three ways with nothing in the
+    old name to say which branch a merchant belongs to — is dropped, so the
+    rule engine decides again rather than the app guessing on your behalf.
+    """
     if path and os.path.exists(path):
         try:
             with open(path) as fh:
-                return json.load(fh)
+                raw = json.load(fh)
         except (json.JSONDecodeError, OSError):
             return {}
+        migrated = {}
+        for key, category in raw.items():
+            current = migrate_category(category)
+            if current is not None:
+                migrated[key] = current
+        return migrated
     return {}
 
 

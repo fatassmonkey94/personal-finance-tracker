@@ -18,22 +18,27 @@ EXCLUDED = "Excluded"
 # Categories, in the display order the P&L uses.
 # ---------------------------------------------------------------------------
 CAT_SALARY = "Salary"
-CAT_CPF = "CPF Contribution (20%)"
+CAT_CPF = "CPF Contribution"
 CAT_ADDITIONAL_INCOME = "Additional Income (Interest & Dividends)"
 
 CAT_INSURANCE = "Insurance"
 CAT_TELCO = "Telco"
 CAT_SUBSCRIPTIONS = "Subscriptions"
 CAT_PARENTS = "Allowance to Parents"
+CAT_TAX = "Tax"
 
-CAT_TRANSPORT = "Transport"
-CAT_FOOD_DELIVERY = "Food Delivery"
-CAT_DINING = "Food & Dining"
+CAT_TRANSPORT_PUBLIC = "Transport (Bus/MRT)"
+CAT_TRANSPORT_CAB = "Transport (Cab)"
+CAT_TRANSPORT_CAR = "Transport (Car Maintenance)"
+CAT_FOOD = "Food"
 CAT_GROCERIES = "Groceries"
 CAT_SHOPPING = "Shopping"
-CAT_RECREATION = "Recreational & Experiences"
-CAT_TRAVEL = "Travel"
-CAT_OTHER = "Other"
+CAT_EXPERIENCES = "Experiences/Hobbies"
+# The bucket *you* put a genuine one-off in. Deliberately separate from
+# CAT_UNCATEGORISED below, which is where the app parks what it could not place
+# — folding the two together would make an unread guess look like your decision.
+CAT_ADDITIONAL_EXPENSE = "Additional Expenses"
+CAT_UNCATEGORISED = "Uncategorised"
 
 CAT_CARD_PAYMENT = "Credit Card Bill Payment"
 CAT_INTERNAL_TRANSFER = "Internal Transfer"
@@ -43,16 +48,18 @@ CAT_INTERNAL_TRANSFER = "Internal Transfer"
 CAT_UNCLASSIFIED_TRANSFER = "Unclassified Transfer (needs your call)"
 
 REVENUE_CATEGORIES = [CAT_SALARY, CAT_CPF, CAT_ADDITIONAL_INCOME]
-FIXED_CATEGORIES = [CAT_INSURANCE, CAT_TELCO, CAT_SUBSCRIPTIONS, CAT_PARENTS]
+FIXED_CATEGORIES = [CAT_INSURANCE, CAT_TELCO, CAT_SUBSCRIPTIONS, CAT_PARENTS,
+                    CAT_TAX]
 VARIABLE_CATEGORIES = [
-    CAT_TRANSPORT,
-    CAT_FOOD_DELIVERY,
-    CAT_DINING,
+    CAT_TRANSPORT_PUBLIC,
+    CAT_TRANSPORT_CAB,
+    CAT_TRANSPORT_CAR,
+    CAT_FOOD,
     CAT_GROCERIES,
     CAT_SHOPPING,
-    CAT_RECREATION,
-    CAT_TRAVEL,
-    CAT_OTHER,
+    CAT_EXPERIENCES,
+    CAT_ADDITIONAL_EXPENSE,
+    CAT_UNCATEGORISED,
 ]
 EXCLUDED_CATEGORIES = [
     CAT_CARD_PAYMENT, CAT_INTERNAL_TRANSFER, CAT_UNCLASSIFIED_TRANSFER,
@@ -67,14 +74,93 @@ ASSIGNABLE_CATEGORIES = (
 )
 
 CATEGORY_SECTION = {}
-for _c in REVENUE_CATEGORIES:
-    CATEGORY_SECTION[_c] = REVENUE
-for _c in FIXED_CATEGORIES:
-    CATEGORY_SECTION[_c] = FIXED
-for _c in VARIABLE_CATEGORIES:
-    CATEGORY_SECTION[_c] = VARIABLE
-for _c in EXCLUDED_CATEGORIES:
-    CATEGORY_SECTION[_c] = EXCLUDED
+
+
+def _reindex_sections() -> None:
+    CATEGORY_SECTION.clear()
+    for _c in REVENUE_CATEGORIES:
+        CATEGORY_SECTION[_c] = REVENUE
+    for _c in FIXED_CATEGORIES:
+        CATEGORY_SECTION[_c] = FIXED
+    for _c in VARIABLE_CATEGORIES:
+        CATEGORY_SECTION[_c] = VARIABLE
+    for _c in EXCLUDED_CATEGORIES:
+        CATEGORY_SECTION[_c] = EXCLUDED
+
+
+_reindex_sections()
+
+# ---------------------------------------------------------------------------
+# Categories you add yourself.
+#
+# The lists above are mutated in place rather than rebuilt, because report.py
+# and app.py hold references to them. A category added here has no keywords
+# behind it, so the rule engine will never reach it on its own — it becomes
+# automatic once you assign a merchant to it and tick "remember my fixes",
+# which is the same mechanism that corrects a wrong guess.
+# ---------------------------------------------------------------------------
+CUSTOM_CATEGORIES: list = []
+
+
+def register_custom_category(name: str, section: str) -> str:
+    """Add a user-defined category to a section. Returns the stored name."""
+    name = " ".join(str(name).split())
+    if not name:
+        raise ValueError("A category needs a name.")
+    if section not in (FIXED, VARIABLE):
+        raise ValueError(f"Unknown section: {section}")
+    if name in CATEGORY_SECTION:
+        raise ValueError(f"“{name}” already exists.")
+
+    target = FIXED_CATEGORIES if section == FIXED else VARIABLE_CATEGORIES
+    # Ahead of the app's own catch-alls, so your categories read first.
+    tail = {CAT_ADDITIONAL_EXPENSE, CAT_UNCATEGORISED}
+    insert_at = next((i for i, c in enumerate(target) if c in tail), len(target))
+    target.insert(insert_at, name)
+    ASSIGNABLE_CATEGORIES.insert(ASSIGNABLE_CATEGORIES.index(EXCLUDED_CATEGORIES[0]),
+                                 name)
+    CUSTOM_CATEGORIES.append({"name": name, "section": section})
+    _reindex_sections()
+    return name
+
+
+def forget_custom_categories() -> None:
+    """Drop every user-defined category. Used by the tests and on reload."""
+    for entry in list(CUSTOM_CATEGORIES):
+        name = entry["name"]
+        for target in (FIXED_CATEGORIES, VARIABLE_CATEGORIES, ASSIGNABLE_CATEGORIES):
+            if name in target:
+                target.remove(name)
+    CUSTOM_CATEGORIES.clear()
+    _reindex_sections()
+
+
+# ---------------------------------------------------------------------------
+# Renamed and merged categories.
+#
+# Your saved category fixes in data/category_overrides.json are keyed by
+# merchant and hold a category *name*, so a rename would silently strand them.
+# Categories that merged map straight across. "Transport" is deliberately
+# absent: it split three ways and there is no way to tell from the old name
+# whether a merchant was a bus fare, a cab or a workshop, so those overrides are
+# dropped and the rule engine — which does draw that distinction — decides again.
+# ---------------------------------------------------------------------------
+LEGACY_CATEGORY_MAP = {
+    "CPF Contribution (20%)": CAT_CPF,
+    "Food Delivery": CAT_FOOD,
+    "Food & Dining": CAT_FOOD,
+    "Recreational & Experiences": CAT_EXPERIENCES,
+    "Travel": CAT_EXPERIENCES,
+    "Other": CAT_UNCATEGORISED,
+}
+LEGACY_CATEGORIES_DROPPED = {"Transport"}
+
+
+def migrate_category(name: str):
+    """Current name for a possibly-old category, or None if it should be dropped."""
+    if name in LEGACY_CATEGORIES_DROPPED:
+        return None
+    return LEGACY_CATEGORY_MAP.get(name, name)
 
 
 def section_for(category: str) -> str:
@@ -94,7 +180,7 @@ class Transaction:
     raw_description: str  # what the statement actually said
     amount_sgd: float  # always positive; `direction` carries the sign
     direction: str  # DEBIT (money out) or CREDIT (money in)
-    category: str = CAT_OTHER
+    category: str = CAT_UNCATEGORISED
     source_account: str = "Unknown"
     source_file: str = ""
     # Which uploaded document this came from. Two uploads of the same file are

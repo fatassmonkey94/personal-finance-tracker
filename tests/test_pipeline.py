@@ -7,6 +7,8 @@ import os
 import sys
 from datetime import date
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -18,22 +20,25 @@ from finance.ingest import ingest_files
 from finance.model import (
     CAT_ADDITIONAL_INCOME,
     CAT_CARD_PAYMENT,
-    CAT_DINING,
-    CAT_FOOD_DELIVERY,
+    CAT_EXPERIENCES,
+    CAT_FOOD,
     CAT_GROCERIES,
     CAT_INSURANCE,
     CAT_INTERNAL_TRANSFER,
     CAT_PARENTS,
-    CAT_RECREATION,
     CAT_SALARY,
     CAT_SHOPPING,
     CAT_SUBSCRIPTIONS,
+    CAT_TAX,
     CAT_TELCO,
-    CAT_TRANSPORT,
-    CAT_TRAVEL,
+    CAT_TRANSPORT_CAB,
+    CAT_TRANSPORT_CAR,
+    CAT_TRANSPORT_PUBLIC,
+    CAT_UNCATEGORISED,
     CREDIT,
     DEBIT,
     EXCLUDED,
+    Transaction,
 )
 from finance.parse_tabular import parse_amount, parse_date, parse_tabular
 from finance.report import (
@@ -89,30 +94,30 @@ def parsed():
     ("ANYTIME FITNESS BUKIT TIMAH", DEBIT, CAT_SUBSCRIPTIONS),
     ("VIRGIN ACTIVE SINGAPORE", DEBIT, CAT_SUBSCRIPTIONS),
     # Variable
-    ("GRAB A-7HKQMNP SINGAPORE SG", DEBIT, CAT_TRANSPORT),
-    ("TRANSITLINK SIMPLYGO", DEBIT, CAT_TRANSPORT),
-    ("NETS FLASHPAY TOP UP", DEBIT, CAT_TRANSPORT),
-    ("SHELL SERVICE STATION 07", DEBIT, CAT_TRANSPORT),
-    ("HDB CARPARK SEASON PARKING", DEBIT, CAT_TRANSPORT),
-    ("GRABFOOD SINGAPORE SG", DEBIT, CAT_FOOD_DELIVERY),
-    ("FOODPANDA SG SINGAPORE", DEBIT, CAT_FOOD_DELIVERY),
-    ("DELIVEROO SINGAPORE", DEBIT, CAT_FOOD_DELIVERY),
-    ("DIN TAI FUNG PARAGON", DEBIT, CAT_DINING),
-    ("CRYSTAL JADE KITCHEN", DEBIT, CAT_DINING),
-    ("PAYNOW TRANSFER TO TAN WEI MING DINNER SHARE", DEBIT, CAT_DINING),
+    ("GRAB A-7HKQMNP SINGAPORE SG", DEBIT, CAT_TRANSPORT_CAB),
+    ("TRANSITLINK SIMPLYGO", DEBIT, CAT_TRANSPORT_PUBLIC),
+    ("NETS FLASHPAY TOP UP", DEBIT, CAT_TRANSPORT_PUBLIC),
+    ("SHELL SERVICE STATION 07", DEBIT, CAT_TRANSPORT_CAR),
+    ("HDB CARPARK SEASON PARKING", DEBIT, CAT_TRANSPORT_CAR),
+    ("GRABFOOD SINGAPORE SG", DEBIT, CAT_FOOD),
+    ("FOODPANDA SG SINGAPORE", DEBIT, CAT_FOOD),
+    ("DELIVEROO SINGAPORE", DEBIT, CAT_FOOD),
+    ("DIN TAI FUNG PARAGON", DEBIT, CAT_FOOD),
+    ("CRYSTAL JADE KITCHEN", DEBIT, CAT_FOOD),
+    ("PAYNOW TRANSFER TO TAN WEI MING DINNER SHARE", DEBIT, CAT_FOOD),
     ("NTUC FAIRPRICE FINEST", DEBIT, CAT_GROCERIES),
     ("SHENG SIONG SUPERMARKET", DEBIT, CAT_GROCERIES),
     ("COLD STORAGE JELITA", DEBIT, CAT_GROCERIES),
     ("SHOPEE SINGAPORE", DEBIT, CAT_SHOPPING),
     ("UNIQLO ORCHARD CENTRAL", DEBIT, CAT_SHOPPING),
     ("IKEA TAMPINES", DEBIT, CAT_SHOPPING),
-    ("CLIMB CENTRAL KALLANG", DEBIT, CAT_RECREATION),
-    ("RAFFLES MEDICAL CLINIC", DEBIT, CAT_RECREATION),
-    ("GOLDEN VILLAGE VIVOCITY", DEBIT, CAT_RECREATION),
-    ("AGODA COM SINGAPORE", DEBIT, CAT_TRAVEL),
-    ("SINGAPORE AIRLINES LTD", DEBIT, CAT_TRAVEL),
-    ("FUNDS TRANSFER TO YOUTRIP TOP UP", DEBIT, CAT_TRAVEL),
-    ("MARRIOTT HOTEL BANGKOK", DEBIT, CAT_TRAVEL),
+    ("CLIMB CENTRAL KALLANG", DEBIT, CAT_EXPERIENCES),
+    ("RAFFLES MEDICAL CLINIC", DEBIT, CAT_EXPERIENCES),
+    ("GOLDEN VILLAGE VIVOCITY", DEBIT, CAT_EXPERIENCES),
+    ("AGODA COM SINGAPORE", DEBIT, CAT_EXPERIENCES),
+    ("SINGAPORE AIRLINES LTD", DEBIT, CAT_EXPERIENCES),
+    ("FUNDS TRANSFER TO YOUTRIP TOP UP", DEBIT, CAT_EXPERIENCES),
+    ("MARRIOTT HOTEL BANGKOK", DEBIT, CAT_EXPERIENCES),
     # Excluded transfers
     ("PAYMENT - THANK YOU", CREDIT, CAT_CARD_PAYMENT),
     ("PAYMENT RECEIVED - THANK YOU", CREDIT, CAT_CARD_PAYMENT),
@@ -148,9 +153,9 @@ def test_no_parent_names_by_default():
 def test_grabfood_beats_grab_ride():
     """Ordering matters: GrabFood must not be booked as transport."""
     cat, _, _, _ = Categoriser().categorise("GRABFOOD SINGAPORE", DEBIT)
-    assert cat == CAT_FOOD_DELIVERY
+    assert cat == CAT_FOOD
     cat, _, _, _ = Categoriser().categorise("GRAB RIDE SINGAPORE", DEBIT)
-    assert cat == CAT_TRANSPORT
+    assert cat == CAT_TRANSPORT_CAB
 
 
 def test_multiword_merchants_actually_match():
@@ -160,8 +165,8 @@ def test_multiword_merchants_actually_match():
     for raw, expected in [
         ("CIRCLES LIFE SINGAPORE", CAT_TELCO),
         ("VIRGIN ACTIVE SINGAPORE", CAT_SUBSCRIPTIONS),
-        ("SINGAPORE AIRLINES LTD", CAT_TRAVEL),
-        ("CRYSTAL JADE KITCHEN", CAT_DINING),
+        ("SINGAPORE AIRLINES LTD", CAT_EXPERIENCES),
+        ("CRYSTAL JADE KITCHEN", CAT_FOOD),
         ("GREAT EASTERN LIFE", CAT_INSURANCE),
     ]:
         assert engine.categorise(raw, DEBIT)[0] == expected, raw
@@ -699,20 +704,20 @@ def test_savings_split_covers_the_whole_of_revenue(parsed):
 
 def test_savings_split_drops_a_negative_wedge():
     """A month that spent more than it earned cannot be drawn as a pie."""
-    from finance.model import Transaction, CAT_DINING, DEBIT
+    from finance.model import Transaction, CAT_FOOD, DEBIT
     from datetime import date as _date
     spent_only = [Transaction(date=_date(2025, 6, 3), description="Lunch",
                               raw_description="LUNCH", amount_sgd=40.0,
-                              direction=DEBIT, category=CAT_DINING)]
+                              direction=DEBIT, category=CAT_FOOD)]
     frame = savings_split(spent_only, ["2025-06"])
     assert list(frame["Part"]) == ["Spent"]
 
 
-def test_ytd_series_has_a_row_per_month_and_measure(parsed):
+def test_ytd_series_has_a_row_per_calendar_month_and_measure(parsed):
     txns, _docs, _notes = parsed
     months = available_months(txns)
     frame = ytd_series(txns, months)
-    assert len(frame) == len(months) * 3
+    assert len(frame) == 12 * 3                 # the axis always runs Jan-Dec
     assert set(frame["Measure"]) == {"Income", "Expenses", "Savings"}
     # Savings is Income minus Expenses, month by month.
     wide = frame.pivot(index="Month", columns="Measure", values="Amount")
@@ -721,13 +726,50 @@ def test_ytd_series_has_a_row_per_month_and_measure(parsed):
             wide.loc[month, "Income"] - wide.loc[month, "Expenses"], abs=0.02)
 
 
-def test_ytd_series_omits_months_with_no_statements(parsed):
-    """Padding the year to twelve rows would draw a zero for a month whose
-    statements simply are not loaded, which reads as 'earned nothing'."""
+def test_ytd_series_keeps_empty_months_as_columns_without_amounts(parsed):
+    """The column holds its place so the year reads Jan-Dec, but an unloaded
+    month carries no amount — a zero there would read as 'earned nothing'."""
+    txns, _docs, _notes = parsed
+    loaded = set(available_months(txns))
+    frame = ytd_series(txns, available_months(txns))
+
+    assert set(frame["Month"]) >= loaded
+    assert "2025-01" in set(frame["Month"])     # present as a column...
+    january = frame[frame["Month"] == "2025-01"]
+    assert january["Amount"].isna().all()       # ...with nothing plotted
+    assert not january["HasData"].any()
+
+    for month in loaded:
+        rows = frame[frame["Month"] == month]
+        assert rows["Amount"].notna().all()
+        assert rows["HasData"].all()
+
+
+def test_ytd_series_reports_change_against_previous_month_and_average(parsed):
     txns, _docs, _notes = parsed
     frame = ytd_series(txns, available_months(txns))
-    assert set(frame["Month"]) == set(available_months(txns))
-    assert "2025-01" not in set(frame["Month"])
+    income = frame[(frame["Measure"] == "Income") & frame["HasData"]].sort_values("Order")
+    assert len(income) >= 2
+
+    # The first month with data has nothing to compare against.
+    assert pd.isna(income.iloc[0]["PrevChange"])
+    first, second = income.iloc[0]["Amount"], income.iloc[1]["Amount"]
+    if first:
+        assert income.iloc[1]["PrevChange"] == pytest.approx(
+            (second - first) / abs(first) * 100)
+
+    mean = income["Amount"].mean()
+    if mean:
+        assert income.iloc[0]["AvgChange"] == pytest.approx(
+            (first - mean) / abs(mean) * 100)
+
+
+def test_trendlines_ignore_months_with_no_data(parsed):
+    """A null month must not drag the fit towards zero."""
+    txns, _docs, _notes = parsed
+    full = trendlines(ytd_series(txns, available_months(txns)))
+    assert len(full) == 6
+    assert full["Fit"].notna().all()
 
 
 def test_trendlines_give_two_endpoints_per_measure(parsed):
@@ -764,3 +806,180 @@ def test_dashboard_frames_survive_empty_input():
     assert savings_split([], []).empty
     assert ytd_series([], []).empty
     assert years_with_months([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# The category model after App requirements.xlsx v1
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("raw,expected", [
+    ("GRAB *A-7HKQ SINGAPORE", CAT_TRANSPORT_CAB),
+    ("COMFORTDELGRO TAXI", CAT_TRANSPORT_CAB),
+    ("SMRT SIMPLYGO TOP UP", CAT_TRANSPORT_PUBLIC),
+    ("EZ-LINK CONCESSION", CAT_TRANSPORT_PUBLIC),
+    ("CALTEX SERVICE STATION", CAT_TRANSPORT_CAR),
+    ("VICOM INSPECTION CENTRE", CAT_TRANSPORT_CAR),
+    ("WILSON PARKING PTE LTD", CAT_TRANSPORT_CAR),
+])
+def test_transport_splits_three_ways(raw, expected):
+    assert Categoriser().categorise(raw, DEBIT)[0] == expected
+
+
+@pytest.mark.parametrize("raw", [
+    "IRAS INCOME TAX",
+    "GIRO IRAS PROPERTY TAX",
+    "INLAND REVENUE AUTHORITY",
+])
+def test_tax_is_a_fixed_commitment_not_a_stray_debit(raw):
+    from finance.model import FIXED, section_for
+    category = Categoriser().categorise(raw, DEBIT)[0]
+    assert category == CAT_TAX
+    assert section_for(category) == FIXED
+
+
+def test_road_tax_is_a_car_cost_not_an_iras_bill():
+    """'ROAD TAX' contains 'TAX' but is what you pay to keep a car on the road."""
+    assert Categoriser().categorise("ROAD TAX RENEWAL", DEBIT)[0] == CAT_TRANSPORT_CAR
+
+
+def test_legacy_category_names_are_carried_forward(tmp_path):
+    """A saved fix must survive a rename, or the user silently loses it."""
+    from finance.model import migrate_category
+    from finance.rules import _load_overrides
+
+    path = tmp_path / "category_overrides.json"
+    path.write_text(json.dumps({
+        "kopitiam": "Food & Dining",
+        "grabfood": "Food Delivery",
+        "agoda": "Travel",
+        "mystery": "Other",
+        "someshop": "Transport",
+    }))
+    loaded = _load_overrides(str(path))
+
+    assert loaded["kopitiam"] == CAT_FOOD
+    assert loaded["grabfood"] == CAT_FOOD
+    assert loaded["agoda"] == CAT_EXPERIENCES
+    assert loaded["mystery"] == CAT_UNCATEGORISED
+    # Transport split three ways with nothing in the old name to say which, so
+    # the override is dropped and the rules decide again.
+    assert "someshop" not in loaded
+    assert migrate_category("Transport") is None
+
+
+def test_a_custom_category_lands_in_its_section():
+    from finance import model
+    try:
+        model.register_custom_category("Pet care", model.VARIABLE)
+        assert model.section_for("Pet care") == model.VARIABLE
+        assert "Pet care" in model.ASSIGNABLE_CATEGORIES
+        with pytest.raises(ValueError):
+            model.register_custom_category("Pet care", model.VARIABLE)
+        with pytest.raises(ValueError):
+            model.register_custom_category("Insurance", model.FIXED)
+    finally:
+        model.forget_custom_categories()
+    assert "Pet care" not in model.VARIABLE_CATEGORIES
+
+
+# ---------------------------------------------------------------------------
+# The dashboard and monthly-page data
+# ---------------------------------------------------------------------------
+def test_section_items_list_every_transaction_with_a_payment_method(parsed):
+    from finance.model import VARIABLE
+    from finance.report import section_items
+    txns, _docs, _notes = parsed
+    month = available_months(txns)[0]
+    frame = section_items(txns, month, VARIABLE)
+
+    expected = [t for t in txns if t.month == month and t.section == VARIABLE]
+    assert len(frame) == len(expected)
+    assert list(frame.columns)[:4] == ["Item", "Category", "Payment Method", "Amount"]
+    assert (frame["Payment Method"] != "").all()
+    # Expenses read positive inside a section already called Expenses.
+    spend = [t for t in expected if t.direction == DEBIT]
+    if spend:
+        assert frame["Amount"].max() > 0
+
+
+def test_section_items_total_matches_the_pnl(parsed):
+    from finance.model import FIXED, VARIABLE
+    from finance.report import build_pnl, section_items
+    txns, _docs, _notes = parsed
+    month = available_months(txns)[0]
+    pnl = build_pnl(txns, month)
+    for section, total in ((FIXED, pnl.total_fixed), (VARIABLE, pnl.total_variable)):
+        frame = section_items(txns, month, section)
+        assert frame["Amount"].sum() == pytest.approx(total, abs=0.02)
+
+
+def test_income_sources_name_the_payer_and_the_latest_payment(parsed):
+    from finance.report import income_sources
+    txns, _docs, _notes = parsed
+    frame = income_sources(txns, available_months(txns))
+    if frame.empty:
+        pytest.skip("no income in the sample statements")
+    assert len(frame) <= 3
+    assert list(frame["Total"]) == sorted(frame["Total"], reverse=True)
+    for row in frame.itertuples():
+        assert row.Source and row.Source.strip()
+        assert not any(ch.isdigit() for ch in row.Source)
+        assert row.LastAmount <= row.Total + 0.01
+        assert row.Payments >= 1
+
+
+def test_savings_stack_omits_a_year_with_no_statements(parsed):
+    from finance.report import months_in_year, savings_stack
+    txns, _docs, _notes = parsed
+    year = sorted({m.split("-")[0] for m in available_months(txns)})[0]
+    frame = savings_stack(txns, year)
+    assert list(frame["Series"]) == ["Current"]
+    assert frame.iloc[0]["Months"] == len(months_in_year(txns, year))
+
+
+def test_cumulative_savings_marks_an_incomplete_year_as_ytd(parsed):
+    from finance.report import cumulative_savings
+    txns, _docs, _notes = parsed
+    frame = cumulative_savings(txns)
+    assert not frame.empty
+    for row in frame.itertuples():
+        assert row.Complete == (row.Months == 12)
+        assert row.Label == (row.Year if row.Complete else f"{row.Year} YTD")
+    # The running total is the sum of everything up to and including that year.
+    assert list(frame["Cumulative"]) == pytest.approx(
+        list(frame["Saved"].cumsum()), abs=0.02)
+
+
+def test_expense_cumulative_totals_the_year_by_category(parsed):
+    from finance.report import expense_cumulative
+    txns, _docs, _notes = parsed
+    months = available_months(txns)
+    frame = expense_cumulative(txns, months)
+    assert not frame.empty
+    assert list(frame["Amount"]) == sorted(frame["Amount"], reverse=True)
+    assert set(frame["Section"]) <= {"Fixed", "Variable"}
+    assert frame["Transactions"].sum() == sum(
+        1 for t in txns if t.month in months and t.section in
+        ("Fixed Expenses", "Variable Expenses"))
+
+
+@pytest.mark.parametrize("raw,expected", [
+    # A company payment: the name is what sits before the legal suffix, with the
+    # bank's routing words and reference numbers stripped off the front.
+    ("GIRO SALARY ACME TECHNOLOGIES PTE LTD REF 8821",
+     "Acme Technologies Pte Ltd"),
+    ("Inward CR - GIRO TO91XKQBVM4HD7P SALA Salary Payment NORTHWIND ASIA PTE. LTD.",
+     "Northwind Asia Pte. Ltd"),
+    ("INWARD TRF - TT SUMMERFIELD ASSOCIATES SG PTE LTD 1AB704193725D02 20260614",
+     "Summerfield Associates Sg Pte Ltd"),
+    # "Holdings" and "Group" are parts of a name, not the end of one.
+    ("FAST INCOMING NORTHWIND HOLDINGS LIMITED 99213",
+     "Northwind Holdings Limited"),
+    # No counterparty at all: the description already says what it is.
+    ("One Bonus Interest", "One Bonus Interest"),
+    ("Interest Credit", "Interest Credit"),
+])
+def test_income_source_names_strip_bank_routing(raw, expected):
+    from finance.report import _source_name
+    txn = Transaction(date=date(2026, 5, 1), description=raw[:40],
+                      raw_description=raw, amount_sgd=1.0, direction=CREDIT)
+    assert _source_name(txn) == expected

@@ -21,12 +21,13 @@ network calls in the app.
 That creates the virtual environment on first run, installs dependencies, and
 opens the app in your browser.
 
-**Add statements** — the green button at the top right — opens a form holding
-everything you feed the app: drag statements onto the uploader, or, under *"…or
-read them straight off this machine"*, point it at the folder you save
-statements into, which saves picking files by hand every month. The same form
-carries the CPF and categorisation settings, so the page itself stays given over
-to your numbers. To have a folder loaded before the page even opens:
+**Input new month statements** — the green button at the top right, and again at
+the top of the sidebar — opens the page holding everything you feed the app:
+drag statements onto the uploader, or, under *"…or read them straight off this
+machine"*, point it at the folder you save statements into, which saves picking
+files by hand every month. The same page carries the CPF and categorisation
+settings, so the dashboard itself stays given over to your numbers. To have a
+folder loaded before the page even opens:
 
 ```bash
 PFT_STATEMENTS=~/Downloads/statements ./run.sh
@@ -64,10 +65,12 @@ machine whose `PIP_INDEX_URL` points at a corporate index that is unreachable
 off-VPN.
 
 **What does not travel with the repo, by design:** the `data/` folder, which
-holds `parent_names.txt` and the learned category fixes in
-`category_overrides.json`. Both are derived from your own statements, so they
+holds `parent_names.txt`, your own categories in `custom_categories.json`, and
+the learned category fixes in `category_overrides.json`. Point
+`PFT_DATA_DIR=/somewhere/else` at another folder to keep them off the repo
+entirely. Both are derived from your own statements, so they
 are gitignored and stay on the machine that made them. On a new machine, retype
-the allowance names once under **Add statements → Categorisation**; the file is
+the allowance names once under **Input new month statements → Categorisation**; the file is
 written for you. Your
 statements are never in the repo either — keep them wherever you like and point
 the loader at that folder.
@@ -109,7 +112,7 @@ The brief allows for a PDF that carries only descriptions and amounts. When a
 line has no date, it is dated to the **end of the statement period** (detected
 from "Statement Date" or "Statement Period" in the document), flagged with a 📅
 in the compilation, and counted in the note at the foot of the income statement.
-Set a fallback month under **Add statements → Statements** if a PDF has no
+Set a fallback month under **Input new month statements → Statements** if a PDF has no
 detectable period either.
 
 ---
@@ -139,9 +142,9 @@ month (stored in `data/category_overrides.json`).
 ```
 REVENUES
     Gross Salary (credited to bank)
-    CPF Contribution (20% of salary)
+    CPF Contribution (per CPF Board's rates)
     Additional Income (interest, dividends, other)
-  Total Revenues
+  Total Revenues                                    <- bold
 
 EXPENSES
   Fixed Expenses
@@ -149,23 +152,38 @@ EXPENSES
     Telco
     Subscriptions
     Allowance to Parents
-   Total Fixed Expenses
+    Tax
+   Total Fixed Expenses                             <- bold
 
   Variable Expenses
-    Transport
-    Food Delivery
-    Food & Dining
+    Transport (Bus/MRT)
+    Transport (Cab)
+    Transport (Car Maintenance)
+    Food
     Groceries
     Shopping
-    Recreational & Experiences
-    Travel
-    Other
-   Total Variable Expenses
+    Experiences/Hobbies
+    Additional Expenses
+    Uncategorised
+   Total Variable Expenses                          <- bold
 
-  Total Expenses
+  Total Expenses                                    <- bold
 
 NET INCOME  = Total Revenues - (Fixed Expenses + Variable Expenses)
 ```
+
+Each section lists **every item**, not a category total: revenues as *item ·
+category · amount*, and each expense section as *item · category · payment
+method · amount*, where payment method is the card or account the money
+actually moved through. A category roll-up sits below in *Summary by category*,
+where clicking a line still opens the transactions behind it — and is the only
+place the CPF working is shown, since CPF is computed rather than parsed.
+
+**Uncategorised vs Additional Expenses** — two buckets that look similar and are
+not. *Uncategorised* is where the app parks what it could not place, and those
+rows are tinted in the transaction table and listed in the Review tab.
+*Additional Expenses* is the bucket **you** put a genuine one-off in. Folding
+them together would make an unread guess look like your decision.
 
 Export both sheets, for one month or several, as a formatted `.xlsx` from
 **Export** in the sidebar.
@@ -174,46 +192,73 @@ Export both sheets, for one month or several, as a formatted `.xlsx` from
 
 ## Getting around the app
 
-The sidebar is the whole navigation: **each year, expanding to its months**, then
-Parsing log and Export under *Tools*. A month button carries its own review count
-("May · 25 to review"), so you can see where the work is without opening anything.
+The sidebar is the whole navigation: a green **Input new month statements**
+button at the top, then **each year, expanding to its months**, then Uploaded
+documents and Export under *Tools*. A month button carries its own review count
+("May · 24 to review"), so you can see where the work is without opening
+anything. The same green button sits at the right of the header.
 
 ### The dashboard — the landing page
 
 Selecting a year gives an annual read of everything loaded for it:
 
-1. **Three pies.** *Income* split by source (salary credited, your CPF
-   contribution, additional income), *Expenses* split by category with the fixed
-   ones in cool tones and the variable ones warm, and *Savings* as what was kept
-   against what was spent, captioned with the savings rate. A category that nets
-   negative over the year — a refund larger than the spend — cannot be drawn as a
-   wedge, so it is named in a caption beneath rather than quietly folded in.
-2. **Year to date, month on month** — income, expenses and savings as dots, three
-   per month, each measure with a dashed least-squares trendline through it, so a
-   drift you would not see in a single month is visible. Months run along the x
-   axis and amounts up the y, with a zero rule where savings cross into negative.
-   Only months carrying data are drawn: padding the year out to twelve would put a
-   zero against a month whose statements simply are not loaded, which reads as
-   "earned nothing" rather than "not known".
-3. **More annual detail**, collapsed — the connected dot plot of spending by
-   category (each category a row, each month a dot, joined so the line shows the
-   direction of travel), the month-by-month table, and notes on anything still
-   needing review and on the transfers held outside the totals.
+1. **Two pies and a savings bar.** *Income* split by source — one green stepped
+   light to dark, so the sources read as parts of a single thing. *Expenses*
+   split by category, fixed commitments warm (orange / red / yellow) and
+   discretionary spend maroon to purple, so the split the income statement makes
+   is visible on the wheel without a second legend; the three biggest wedges
+   name themselves without a hover. *Savings* is a stacked bar of what was kept
+   against what was spent, in blue, with last year beside it as a dashed outline
+   — an outline, because it is a reference, not a second reading. It appears
+   only when statements for that year are actually loaded. A category that nets
+   negative over the year — a refund larger than the spend — cannot be drawn as
+   a wedge, so it is named in a caption beneath rather than quietly folded in.
+2. **Cumulative savings, year on year** — what each year put aside, in light
+   blue, with a least-squares trend line across them. A year is marked **YTD**
+   until all twelve months have statements loaded. That is stricter than the
+   calendar — a finished year with two months missing is still YTD — but the
+   label then describes what the bar is built from rather than what the date
+   says.
+3. **Month on month** — income, expenses and savings as dots, joined by a solid
+   connector and shadowed by a dashed least-squares fit. The connector answers
+   "what happened between March and April"; the fit answers "which way is the
+   year going", and a volatile month against a steady trend is the useful read.
+   The x axis always runs January to December; a month with no statements loaded
+   keeps its column but carries no dot, because a zero there would read as
+   "earned nothing" rather than "not known". Hovering a dot gives the amount,
+   the change on the month before, and the change against the year's average.
+   A year picker sits beside the heading.
+4. **Where your income came from** — the top three payers by total received,
+   each with the amount year to date and the last payment. Names are read out of
+   the statement's own wording: a Singapore bank credit wraps the payer in
+   routing text ("Inward CR - GIRO TO42... SALA Salary Payment ACME PTE. LTD."),
+   so the name is taken as the words before the legal suffix, stopping at the
+   bank's routing words. A line with no counterparty at all — bank interest, a
+   dividend credit — keeps its own description rather than being given a
+   fabricated name.
+5. **Expenses by category, cumulative for the year** — one bar per category for
+   the whole year, coloured by fixed or variable.
+6. **More annual detail**, collapsed — the connected dot plot of spending by
+   category month on month, the month-by-month table, and notes on anything
+   still needing review and on the transfers held outside the totals.
 
 ### A month
 
 1. The five headline figures for that month sit at the top.
-2. **Income Statement** is the first sub-tab. **Click any line** to open a
-   scrollable pop-up listing the transactions behind it, with money-in and
-   money-out subtotals. Clicking the CPF line shows how the figure was derived
-   instead.
+2. **Income Statement** is the first sub-tab: revenues, then fixed and variable
+   expenses, each listed item by item with its payment method and a bold total.
+   Under *Summary by category*, **clicking any line** opens a scrollable pop-up
+   listing the transactions behind it, with money-in and money-out subtotals.
+   Clicking the CPF line shows how the figure was derived instead.
 3. **Transactions** is next, filterable on every column under *Filters*: date
    range, category, account, type, section, amount range, free-text search across
    description and raw statement text, plus flag-only and foreign-currency-only
    toggles. The expander reports how many filters are active and stays open while
    any are set, so a forgotten filter cannot quietly skew what you are reading.
 4. **⚠ Review** is tinted red, because it is the tab that needs you — it lists
-   what was categorised on a guess and why.
+   what was categorised on a guess and why. Those same rows are tinted in the
+   Transactions table itself, so you meet them while scrolling rather than only
+   when you go looking.
 
 ---
 
@@ -238,13 +283,13 @@ tab of some unrelated group.
 ## Decisions worth knowing about
 
 **Large unidentified transfers are held back.** A PayNow transfer with no
-recognisable merchant is booked to Food & Dining (out) or Additional Income (in)
+recognisable merchant is booked to Food (out) or Additional Income (in)
 per your rules — but only up to a threshold, S$500 by default. Above that the
 guess is too consequential to make silently: a S$24,000 PayNow is not a
 restaurant bill, and a S$26,000 inbound transfer is not salary. Those are tagged
 *Unclassified Transfer*, listed below the income statement with a total, and
-counted normally the moment you assign a category. Set the threshold to 0 under **Add
-statements → Categorisation** to follow your rule literally in every case.
+counted normally the moment you assign a category. Set the threshold to 0 under **Input new
+month statements → Categorisation** to follow your rule literally in every case.
 
 **Transfers to and from investment accounts are excluded.** Funding a brokerage
 or exchange account is not an expense, and withdrawing from one is not income —
@@ -299,7 +344,7 @@ patterns (`finance/rules.py`). First match wins, and order carries meaning —
 GrabFood is tested before Grab so a food delivery isn't booked as transport, and
 airlines and hotels are tested before transport so a flight isn't a commute.
 
-Every transaction records which rule fired, visible in the **Parsing log** tab,
+Every transaction records which rule fired, visible under **Uploaded documents**,
 so no categorisation is a black box.
 
 Specific behaviours from your brief:
@@ -307,23 +352,51 @@ Specific behaviours from your brief:
 - **Allowance to parents** — transfers naming whoever you list in the form. No
   names ship in source; yours are kept in `data/parent_names.txt`, which is
   gitignored, so real names never reach the repository.
-- **PayNow / transfers out** — booked to *Food & Dining* as you specified, but
-  flagged for review since a transfer could be anything.
-- **YouTrip top-ups** — *Travel*.
+- **PayNow / transfers out** — booked to *Food* as you specified, but flagged
+  for review since a transfer could be anything.
+- **Transport, three ways** — ride-hailing and taxis to *Transport (Cab)*; fares,
+  EZ-Link and NETS top-ups to *Transport (Bus/MRT)*; fuel, servicing, parking,
+  road tax and car-sharing to *Transport (Car Maintenance)*. Cabs are tested
+  first, because the car and public lists carry generic words ("SERVICING",
+  "BUS") that a brand name could otherwise collide with.
+- **Tax** — IRAS, income tax and property tax are a *Fixed* commitment. "Road
+  tax" is not: it contains the word, but it is what you pay to keep a car on the
+  road, so it stays with the car.
+- **Travel and YouTrip top-ups** — *Experiences/Hobbies*, since the requirements
+  list has no Travel row of its own.
 - **Refunds** — netted off the category they were spent from rather than counted
   as income, so a returned IKEA purchase reduces Shopping.
-- **Wellness, health and sports** — *Recreational & Experiences*, including
-  clinics, dental and pharmacy.
-- **Utilities, rent, tax, ATM withdrawals and bank fees** — no line exists for
-  these in your structure, so they land in *Other* and are flagged, rather than
-  being hidden or dropped.
+- **Wellness, health and sports** — *Experiences/Hobbies*, including clinics,
+  dental and pharmacy.
+- **Utilities, rent, ATM withdrawals and bank fees** — no line exists for these
+  in your structure, so they land in *Uncategorised* and are flagged, rather
+  than being hidden or dropped.
 - **Merchant names beat location names** — `GIANT-SIMEI MRT` is a supermarket,
   not a train fare, so the generic MRT/BUS/TAXI terms are only tested after every
   named merchant has had a chance to match.
 
-Anything unmatched goes to *Other* and appears in the **Review** tab. Nothing is
-ever silently discarded — unrecognised statement lines are listed in the parsing
-log so you can see exactly what was skipped.
+Anything unmatched goes to *Uncategorised* and appears in the **Review** tab.
+Nothing is ever silently discarded — unrecognised statement lines are listed
+under **Uploaded documents** so you can see exactly what was skipped.
+
+### Your own categories
+
+Add one under **Input new month statements → Categorisation**, choosing whether
+it belongs to fixed or variable expenses. A new category has no merchant
+keywords behind it, so nothing lands in it automatically at first — assign a
+transaction to it with *remember my fixes* ticked and that merchant goes there
+from then on, which is the same mechanism that corrects a wrong guess. Your
+categories are kept in `data/custom_categories.json`, alongside the learned
+fixes and out of the repository.
+
+### When a category is renamed
+
+Learned fixes store a category *name*, so the app brings old names forward when
+it loads them: `Food & Dining` and `Food Delivery` both become `Food`, `Travel`
+becomes `Experiences/Hobbies`, `Other` becomes `Uncategorised`. The one
+exception is `Transport`, which split three ways — nothing in the old name says
+whether a merchant was a bus fare, a cab or a workshop, so those fixes are
+dropped and the rule engine, which does draw that distinction, decides again.
 
 ---
 
@@ -343,7 +416,7 @@ finance/
   export_excel.py         formatted .xlsx writer
 make_samples.py           generates sample statements
 static/fonts/             self-hosted Space Grotesk + JetBrains Mono
-tests/                    249 tests, incl. CPF and real-statement regressions
+tests/                    283 tests, incl. CPF and real-statement regressions
 ```
 
 Duplicate uploads are detected: exact repeats are dropped, and the same amount

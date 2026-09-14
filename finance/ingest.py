@@ -132,5 +132,14 @@ def apply_override(overrides: dict, raw_description: str, category: str) -> dict
     return overrides
 
 
+def default_data_dir(base_dir: str) -> str:
+    """Where per-user files live: learned fixes, parent names, your categories.
+
+    Overridable with PFT_DATA_DIR so a test run cannot write into the real
+    data/ directory, and so a shared machine can keep this off the repo.
+    """
+    return os.environ.get("PFT_DATA_DIR") or os.path.join(base_dir, "data")
+
+
 def default_overrides_path(base_dir: str) -> str:
-    return os.path.join(base_dir, "data", "category_overrides.json")
+    return os.path.join(default_data_dir(base_dir), "category_overrides.json")
