@@ -1,6 +1,9 @@
 [server]
 # Serves the self-hosted fonts in static/fonts, so the app needs no CDN.
 enableStaticServing = true
+# Cloud containers have a low inotify watcher limit; source files are immutable
+# there, so live file watching is unnecessary.
+fileWatcherType = "none"
 # Statements can be large; allow generous uploads.
 maxUploadSize = 200
 
