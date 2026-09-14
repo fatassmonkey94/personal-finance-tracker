@@ -18,12 +18,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from finance.ingest import ingest_files
 from finance.model import (
     CAT_CARD_PAYMENT,
-    CAT_DINING,
+    CAT_EXPERIENCES,
+    CAT_FOOD,
     CAT_GROCERIES,
     CAT_INSURANCE,
     CAT_INTERNAL_TRANSFER,
-    CAT_TRANSPORT,
-    CAT_TRAVEL,
+    CAT_TRANSPORT_PUBLIC,
     CAT_UNCLASSIFIED_TRANSFER,
     CREDIT,
     DEBIT,
@@ -189,7 +189,7 @@ def test_youtrip_legal_name_is_travel(uob_account):
     """Top-ups show YouTrip's corporate name, truncated by the export, not the
     brand — so the rule has to match the "YOU TECHNOLOG" stem."""
     top_up = _by(uob_account, "YOU TECHNOLOGIES GR")
-    assert top_up.category == CAT_TRAVEL
+    assert top_up.category == CAT_EXPERIENCES
 
 
 @pytest.mark.parametrize("payee", [
@@ -197,7 +197,7 @@ def test_youtrip_legal_name_is_travel(uob_account):
     "YOU TECHNOLOGY PTE LTD", "YOUTRIP", "YouTrip Top Up",
 ])
 def test_all_youtrip_spellings_are_travel(payee):
-    assert Categoriser().categorise(f"PAYNOW-FAST OTHR {payee}", DEBIT)[0] == CAT_TRAVEL
+    assert Categoriser().categorise(f"PAYNOW-FAST OTHR {payee}", DEBIT)[0] == CAT_EXPERIENCES
 
 
 def test_large_unidentified_transfer_is_held_back(uob_account):
@@ -213,7 +213,7 @@ def test_threshold_of_zero_restores_literal_behaviour():
         [("uob.csv", UOB_ACCOUNT_CSV.encode())], transfer_review_threshold=0,
     )
     big = next(t for t in txns if "A Payee" in t.raw_description)
-    assert big.category == CAT_DINING
+    assert big.category == CAT_FOOD
 
 
 def test_transfer_naming_a_merchant_uses_that_merchant(uob_account):
@@ -230,10 +230,10 @@ def test_transfer_naming_a_merchant_uses_that_merchant(uob_account):
     # A supermarket at a station is groceries, not a train fare.
     ("GIANT-SIMEI MRT Singapore SG", CAT_GROCERIES),
     ("COLD STORAGE JURONG EAST MRT", CAT_GROCERIES),
-    ("STARBUCKS BUGIS MRT", CAT_DINING),
+    ("STARBUCKS BUGIS MRT", CAT_FOOD),
     # ...but a genuine fare still lands in transport.
-    ("BUS/MRT 862119911", CAT_TRANSPORT),
-    ("BUS/MRT DONATION", CAT_TRANSPORT),
+    ("BUS/MRT 862119911", CAT_TRANSPORT_PUBLIC),
+    ("BUS/MRT DONATION", CAT_TRANSPORT_PUBLIC),
 ])
 def test_named_merchant_beats_location_word(raw, expected):
     assert Categoriser().categorise(raw, DEBIT)[0] == expected
@@ -249,7 +249,7 @@ def test_named_merchant_beats_location_word(raw, expected):
     "MAY'S COFFE",
 ])
 def test_generic_food_words_reach_dining(raw):
-    assert Categoriser().categorise(raw, DEBIT)[0] == CAT_DINING
+    assert Categoriser().categorise(raw, DEBIT)[0] == CAT_FOOD
 
 
 # ---------------------------------------------------------------------------

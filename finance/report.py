@@ -1,6 +1,7 @@
 """Build the two monthly outputs: the transaction compilation and the P&L."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import List, Optional
@@ -668,26 +669,63 @@ def ytd_series(transactions: List[Transaction], months: List[str],
                include_employer_cpf: bool = False) -> pd.DataFrame:
     """Long-form month x measure for the year-to-date dot plot.
 
-    Only months that carry data appear. Padding the year out to twelve rows
-    would draw a zero for a month whose statements simply are not loaded, which
-    reads as "earned nothing" rather than "not known".
+    Every month of the calendar year gets a row so the x axis always runs
+    January to December, but a month with no statements loaded carries a null
+    Amount rather than a zero — the column holds its place and no dot is drawn,
+    because a zero there would read as "earned nothing" rather than "not known".
+
+    PrevChange and AvgChange are percentage changes against the previous month
+    that *has* data and against the year's mean so far. They are computed here
+    rather than in the chart so the same figures reach the export.
     """
-    rows = []
-    for order, month_key in enumerate(months):
+    year = months[0].split("-")[0] if months else ""
+    loaded = set(months)
+    calendar = [f"{year}-{m:02d}" for m in range(1, 13)] if year else []
+
+    figures = {}
+    for month_key in calendar:
+        if month_key not in loaded:
+            continue
         pnl = build_pnl(transactions, month_key, salary_basis, cpf_status,
                         cpf_age_band, include_employer_cpf)
-        for measure, amount in (("Income", pnl.total_revenue),
-                                ("Expenses", pnl.total_expenses),
-                                ("Savings", pnl.net_income)):
+        figures[month_key] = {
+            "Income": pnl.total_revenue,
+            "Expenses": pnl.total_expenses,
+            "Savings": pnl.net_income,
+        }
+
+    measures = ("Income", "Expenses", "Savings")
+    averages = {}
+    for measure in measures:
+        values = [figures[m][measure] for m in figures]
+        averages[measure] = (sum(values) / len(values)) if values else None
+
+    rows = []
+    for measure in measures:
+        previous = None
+        for order, month_key in enumerate(calendar):
+            amount = figures.get(month_key, {}).get(measure)
+            prev_change = avg_change = None
+            if amount is not None:
+                if previous not in (None, 0):
+                    prev_change = (amount - previous) / abs(previous) * 100
+                mean = averages[measure]
+                if mean not in (None, 0):
+                    avg_change = (amount - mean) / abs(mean) * 100
+                previous = amount
             rows.append({
                 "Month": month_key,
-                "MonthLabel": month_short(month_key),
+                "MonthLabel": MONTH_LABELS[order][:3],
                 "Order": order,
                 "Measure": measure,
                 "Amount": amount,
+                "PrevChange": prev_change,
+                "AvgChange": avg_change,
+                "HasData": month_key in figures,
             })
     return pd.DataFrame(rows, columns=[
         "Month", "MonthLabel", "Order", "Measure", "Amount",
+        "PrevChange", "AvgChange", "HasData",
     ])
 
 
@@ -698,6 +736,12 @@ def trendlines(series: pd.DataFrame) -> pd.DataFrame:
     uses an ordinal month axis, so the fit is computed here against the month's
     ordinal position and returned as two points per measure.
     """
+    if series.empty:
+        return pd.DataFrame(columns=["Measure", "Order", "MonthLabel", "Fit"])
+    # Months with no statements carry a null amount now that the axis runs the
+    # full calendar year. Fitting through them would drag every trend towards
+    # whatever pandas coerces the gap to.
+    series = series[series["Amount"].notna()]
     if series.empty:
         return pd.DataFrame(columns=["Measure", "Order", "MonthLabel", "Fit"])
     rows = []
@@ -724,3 +768,261 @@ def trendlines(series: pd.DataFrame) -> pd.DataFrame:
                 "Fit": round(slope * x + intercept, 2),
             })
     return pd.DataFrame(rows, columns=["Measure", "Order", "MonthLabel", "Fit"])
+
+
+# ---------------------------------------------------------------------------
+# Item-level tables for the monthly page
+#
+# The income statement aggregates to one row per category; these give the
+# individual transactions behind a section, which is what the monthly page
+# tables show. "Payment method" is the account the money actually moved
+# through — the card or bank account named in the statement's own preamble.
+# ---------------------------------------------------------------------------
+ITEM_COLUMNS = ["Item", "Category", "Payment Method", "Amount"]
+
+
+def _payment_method(txn: Transaction) -> str:
+    account = (txn.source_account or "").strip()
+    return account if account and account.lower() != "unknown" else "—"
+
+
+def section_items(transactions: List[Transaction], month_key: str,
+                  section: str) -> pd.DataFrame:
+    """Every transaction in one section of one month, newest rules applied.
+
+    Amounts are signed the way the section reads: an expense is positive
+    because the section is already called Expenses, and a refund inside it is
+    negative because it reduces that category.
+    """
+    rows = []
+    for txn in transactions:
+        if txn.month != month_key or txn.section != section:
+            continue
+        if section == REVENUE:
+            amount = txn.signed_amount
+        else:
+            amount = -txn.signed_amount
+        rows.append({
+            "Item": txn.description,
+            "Category": txn.category,
+            "Payment Method": _payment_method(txn),
+            "Amount": round(amount, 2),
+            "Date": txn.date,
+        })
+    frame = pd.DataFrame(rows, columns=ITEM_COLUMNS + ["Date"])
+    if frame.empty:
+        return frame
+    return (frame.sort_values(["Category", "Date"], kind="stable")
+                 .reset_index(drop=True))
+
+
+# ---------------------------------------------------------------------------
+# Dashboard: income sources by name
+# ---------------------------------------------------------------------------
+# A Singapore bank credit wraps the payer in routing text: "Inward CR - GIRO
+# TO91XKQBVM4HD7P SALA Salary Payment ACME ASIA PTE. LTD.". The company name is
+# the part ending in a corporate suffix, so that is what we look for first.
+_CORPORATE_SUFFIX = re.compile(
+    # "Holdings" and "Group" are parts of a name, not legal suffixes — treating
+    # them as the end would cut "Northwind Holdings Limited" down to "Northwind".
+    r"\b(PTE\.?\s*LTD\.?|PRIVATE\s+LIMITED|LTD\.?|LIMITED|LLP|L\.?L\.?C\.?|"
+    r"INC\.?|CORP\.?|CORPORATION)\b"
+)
+# Walking back from the suffix stops at any of these: past them lies the bank's
+# routing, not the payer.
+_HARD_ROUTING = {
+    "GIRO", "SALA", "SALARY", "PAYMENT", "PAYMENTS", "TRANSFER", "TRF", "TT",
+    "INWARD", "OUTWARD", "INCOMING", "REF", "TXN", "ADVICE", "FAST", "MEPS",
+    "IBG", "IBFT", "PAYNOW", "PAYLAH", "OTHR", "CREDIT", "DEPOSIT", "REMITTANCE",
+    "BONUS", "DIVIDEND", "INTEREST", "VIA", "FROM", "TO",
+}
+# The routing prefix a statement puts before the real description.
+_ROUTING_PREFIX = re.compile(
+    r"^(INWARD|OUTWARD|INCOMING|OTHR)\b[A-Z\s]{0,12}?-\s*"
+)
+_HAS_DIGIT = re.compile(r"\d")
+
+
+def _source_name(txn: Transaction) -> str:
+    """Best guess at who paid you, from the statement's own wording.
+
+    Two shapes come up. A company payment names the company and ends in a
+    corporate suffix, so the name is the few words before that suffix, stopping
+    at the bank's own routing words. Anything else — bank interest, a dividend
+    credit — has no counterparty at all, and its description already says what
+    it is, so that is shown rather than a fabricated name.
+    """
+    text = (txn.raw_description or "").upper()
+    text = _ROUTING_PREFIX.sub("", text).strip()
+    tokens = [t for t in text.split() if not _HAS_DIGIT.search(t)]
+
+    suffix = _CORPORATE_SUFFIX.search(" ".join(tokens))
+    if suffix:
+        before = " ".join(tokens)[:suffix.start()].split()
+        name_parts = []
+        for token in reversed(before):
+            if token.strip(".,") in _HARD_ROUTING:
+                break
+            name_parts.insert(0, token)
+            if len(name_parts) == 5:
+                break
+        if name_parts:
+            whole = " ".join(tokens)
+            return " ".join(name_parts + whole[suffix.start():suffix.end()].split()).title()
+
+    cleaned = " ".join(tokens).strip(" -")
+    if len(cleaned) < 3:
+        return txn.description or "Unnamed source"
+    return cleaned.title()
+
+
+def income_sources(transactions: List[Transaction], months: List[str],
+                   limit: int = 3) -> pd.DataFrame:
+    """Who paid you this year: name, total received, and the latest payment.
+
+    Grouped on the cleaned-up name rather than the category, because "top three
+    income sources" is a question about payers, not about which P&L line they
+    landed on.
+    """
+    buckets = {}
+    for txn in transactions:
+        if txn.month not in months or txn.direction != CREDIT:
+            continue
+        if txn.section != REVENUE:
+            continue
+        name = _source_name(txn)
+        bucket = buckets.setdefault(name, {
+            "Source": name, "Category": txn.category, "Total": 0.0,
+            "Payments": 0, "LastDate": None, "LastAmount": 0.0,
+        })
+        bucket["Total"] += txn.amount_sgd
+        bucket["Payments"] += 1
+        if txn.date and (bucket["LastDate"] is None or txn.date >= bucket["LastDate"]):
+            bucket["LastDate"] = txn.date
+            bucket["LastAmount"] = txn.amount_sgd
+    frame = pd.DataFrame(list(buckets.values()), columns=[
+        "Source", "Category", "Total", "Payments", "LastDate", "LastAmount",
+    ])
+    if frame.empty:
+        return frame
+    frame["Total"] = frame["Total"].round(2)
+    frame["LastAmount"] = frame["LastAmount"].round(2)
+    return (frame.sort_values("Total", ascending=False)
+                 .head(limit).reset_index(drop=True))
+
+
+# ---------------------------------------------------------------------------
+# Dashboard: savings, this year against last
+# ---------------------------------------------------------------------------
+def savings_stack(transactions: List[Transaction], year: str,
+                  salary_basis: str = BASIS_NET,
+                  cpf_status: str = cpf.STATUS_CITIZEN,
+                  cpf_age_band: str = "55 and below",
+                  include_employer_cpf: bool = False) -> pd.DataFrame:
+    """Saved vs spent for `year`, and the same for the year before it.
+
+    The previous year comes back as its own row only when statements for it are
+    actually loaded — the chart draws it as an outline, and an outline around a
+    zero would suggest last year was a year of no savings rather than a year
+    you have not uploaded.
+    """
+    args = (salary_basis, cpf_status, cpf_age_band, include_employer_cpf)
+    rows = []
+    for which, target in (("Current", year), ("Previous", str(int(year) - 1))):
+        months = months_in_year(transactions, target)
+        if not months:
+            continue
+        saved = spent = 0.0
+        for month_key in months:
+            pnl = build_pnl(transactions, month_key, *args)
+            saved += pnl.net_income
+            spent += pnl.total_expenses
+        rows.append({
+            "Series": which,
+            "Year": target,
+            "Saved": round(saved, 2),
+            "Spent": round(spent, 2),
+            "Months": len(months),
+        })
+    return pd.DataFrame(rows, columns=["Series", "Year", "Saved", "Spent", "Months"])
+
+
+def cumulative_savings(transactions: List[Transaction],
+                       salary_basis: str = BASIS_NET,
+                       cpf_status: str = cpf.STATUS_CITIZEN,
+                       cpf_age_band: str = "55 and below",
+                       include_employer_cpf: bool = False) -> pd.DataFrame:
+    """Savings per year, oldest first, with a running total.
+
+    A year is marked YTD unless all twelve months have statements loaded. That
+    is stricter than the calendar — a finished year with two months missing is
+    still YTD here — but the label then describes what the bar is actually
+    built from rather than what the date says.
+    """
+    args = (salary_basis, cpf_status, cpf_age_band, include_employer_cpf)
+    rows = []
+    running = 0.0
+    for order, year in enumerate(sorted(years_with_months(transactions))):
+        months = months_in_year(transactions, year)
+        saved = sum(build_pnl(transactions, m, *args).net_income for m in months)
+        running += saved
+        complete = len(months) == 12
+        rows.append({
+            "Year": year,
+            "Order": order,
+            "Saved": round(saved, 2),
+            "Cumulative": round(running, 2),
+            "Months": len(months),
+            "Complete": complete,
+            "Label": year if complete else f"{year} YTD",
+        })
+    return pd.DataFrame(rows, columns=[
+        "Year", "Order", "Saved", "Cumulative", "Months", "Complete", "Label",
+    ])
+
+
+def cumulative_trend(frame: pd.DataFrame) -> pd.DataFrame:
+    """Least-squares fit through the yearly savings bars, as two endpoints."""
+    if frame.empty or len(frame) < 2:
+        return pd.DataFrame(columns=["Label", "Order", "Fit"])
+    xs = frame["Order"].tolist()
+    ys = frame["Saved"].tolist()
+    n = len(xs)
+    mean_x, mean_y = sum(xs) / n, sum(ys) / n
+    denominator = sum((x - mean_x) ** 2 for x in xs)
+    if denominator == 0:
+        return pd.DataFrame(columns=["Label", "Order", "Fit"])
+    slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / denominator
+    intercept = mean_y - slope * mean_x
+    rows = [{
+        "Label": frame.loc[frame["Order"] == x, "Label"].iloc[0],
+        "Order": x,
+        "Fit": round(slope * x + intercept, 2),
+    } for x in (xs[0], xs[-1])]
+    return pd.DataFrame(rows, columns=["Label", "Order", "Fit"])
+
+
+def expense_cumulative(transactions: List[Transaction],
+                       months: List[str]) -> pd.DataFrame:
+    """Total spend per category over the year, biggest first.
+
+    This is the annual counterpart to the monthly breakdown: one bar per
+    category for the whole year, rather than a dot per month.
+    """
+    totals = {}
+    for txn in transactions:
+        if txn.month not in months or txn.section not in (FIXED, VARIABLE):
+            continue
+        entry = totals.setdefault(txn.category, {
+            "Category": txn.category,
+            "Section": "Fixed" if txn.section == FIXED else "Variable",
+            "Amount": 0.0, "Transactions": 0,
+        })
+        entry["Amount"] += -txn.signed_amount
+        entry["Transactions"] += 1
+    frame = pd.DataFrame(list(totals.values()),
+                         columns=["Category", "Section", "Amount", "Transactions"])
+    if frame.empty:
+        return frame
+    frame["Amount"] = frame["Amount"].round(2)
+    return frame.sort_values("Amount", ascending=False).reset_index(drop=True)
