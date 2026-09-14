@@ -20,18 +20,26 @@ from finance.model import ASSIGNABLE_CATEGORIES, CREDIT, DEBIT, EXCLUDED
 from finance.report import (
     BASIS_GROSS,
     BASIS_NET,
+    MONTH_LABELS,
     annual_summary,
     available_months,
     build_pnl,
     category_breakdown,
     category_by_month,
     compilation_frame,
+    expense_breakdown,
+    income_breakdown,
     line_transactions,
     month_label,
     month_short,
     monthly_trend,
+    months_in_year,
     pnl_display_frame,
     review_frame,
+    savings_split,
+    trendlines,
+    years_with_months,
+    ytd_series,
 )
 from finance.rules import DEFAULT_PARENT_NAMES, save_overrides
 
@@ -104,42 +112,58 @@ st.markdown(
           font-variant-numeric: tabular-nums;
       }
 
-      /* View strip: a radio group dressed as a tab bar. Scoped to
-         .st-key-month_strip so other radios keep their normal look. */
-      .st-key-month_strip div[role="radiogroup"] {
-          border-bottom: 1px solid var(--hairline);
-          gap: 0;
-          flex-wrap: wrap;
-          align-items: flex-end;
+      /* Header: the app's name, and the one green control beside it. */
+      .app-title {
+          font-size: 1.62rem; font-weight: 600; letter-spacing: -0.022em;
+          line-height: 1.15;
       }
-      .st-key-month_strip div[role="radiogroup"] > label {
-          border-radius: 0;
-          padding: 0.45rem 1.05rem 0.5rem 1.05rem;
-          margin-bottom: -1px;
-          border-bottom: 1px solid transparent;
-      }
-      /* Hide the radio dot so the labels read as tabs. */
-      .st-key-month_strip div[role="radiogroup"] > label
-        > div:first-child { display: none; }
-      .st-key-month_strip div[role="radiogroup"] > label p {
-          color: var(--muted) !important;
-          font-size: 0.9rem;
-          letter-spacing: 0.01em;
-      }
-      .st-key-month_strip div[role="radiogroup"] > label:hover {
-          background: var(--panel);
-      }
-      .st-key-month_strip div[role="radiogroup"] > label:hover p {
-          color: var(--bright) !important;
-      }
-      .st-key-month_strip div[role="radiogroup"] > label:has(input:checked) {
-          border-bottom: 1px solid var(--accent);
-          background: transparent;
-      }
-      .st-key-month_strip div[role="radiogroup"] > label:has(input:checked) p {
-          color: var(--accent) !important;
+      .app-sub { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
+
+      /* The intake button is the only green on the page, so it reads as the
+         one thing that changes what the app knows. */
+      .st-key-open_intake button {
+          background: #1FA95F !important;
+          border: 1px solid #1FA95F !important;
+          color: #04120B !important;
           font-weight: 600;
+          margin-top: 0.35rem;
       }
+      .st-key-open_intake button:hover {
+          background: #24C06D !important; border-color: #24C06D !important;
+      }
+      .st-key-open_intake button p { color: #04120B !important; }
+
+      /* Sidebar navigation: a year expands to its months. */
+      .nav-brand {
+          font-size: 1.02rem; font-weight: 600; line-height: 1.25;
+          letter-spacing: -0.015em; padding: 0.1rem 0 0.9rem;
+      }
+      .nav-heading {
+          font-size: 0.66rem; letter-spacing: 0.11em; text-transform: uppercase;
+          color: var(--muted); margin: 1.1rem 0 0.4rem;
+      }
+      section[data-testid="stSidebar"] div[data-testid="stExpander"] details {
+          border: none; border-bottom: 1px solid var(--hairline);
+      }
+      section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+          font-weight: 600; letter-spacing: 0.02em;
+      }
+      section[data-testid="stSidebar"] button {
+          justify-content: flex-start !important;
+          text-align: left; font-size: 0.86rem;
+      }
+      section[data-testid="stSidebar"] button p { text-align: left; }
+
+      /* Pie headings: the figure leads, the label sits above it quietly. */
+      .pie-title {
+          font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase;
+          color: var(--muted);
+      }
+      .pie-total {
+          font-size: 1.55rem; font-weight: 600; letter-spacing: -0.02em;
+          font-variant-numeric: tabular-nums; line-height: 1.3;
+      }
+      .pie-sub { font-size: 0.74rem; color: var(--muted); margin-bottom: 0.2rem; }
 
       /* Sub-tabs: flat, hairline underline on the active one. */
       div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
@@ -152,21 +176,23 @@ st.markdown(
           padding-right: 1rem;
       }
 
-      /* Review sub-tab — a muted red wash, the dark-theme reading of pastel. */
-      div[data-testid="stTabs"] div[data-baseweb="tab-list"]
+      /* Review sub-tab - a muted red wash, the dark-theme reading of pastel.
+         Scoped to the month sub-tabs: an unscoped nth-of-type would tint the
+         third tab of every tab group, the intake dialog's included. */
+      .st-key-month_subtabs div[data-baseweb="tab-list"]
         button[data-baseweb="tab"]:nth-of-type(3) {
           background-color: var(--warn-bg);
       }
-      div[data-testid="stTabs"] div[data-baseweb="tab-list"]
+      .st-key-month_subtabs div[data-baseweb="tab-list"]
         button[data-baseweb="tab"]:nth-of-type(3) p {
           color: var(--warn-fg) !important;
           font-weight: 600;
       }
-      div[data-testid="stTabs"] div[data-baseweb="tab-list"]
+      .st-key-month_subtabs div[data-baseweb="tab-list"]
         button[data-baseweb="tab"]:nth-of-type(3):hover {
           background-color: #332024;
       }
-      div[data-testid="stTabs"] div[data-baseweb="tab-list"]
+      .st-key-month_subtabs div[data-baseweb="tab-list"]
         button[data-baseweb="tab"]:nth-of-type(3)[aria-selected="true"] {
           background-color: #3A2429;
       }
@@ -221,121 +247,68 @@ for key, default in [
 
 
 # ---------------------------------------------------------------------------
-# Sidebar: settings
+# Settings live in session state, not in widgets on the page.
+#
+# They are edited in the header's intake dialog, which only renders its widgets
+# while it is open — so the values have to survive independently of it. Keyed
+# widgets write straight into session state, and every computation reads from
+# there.
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.header("Settings")
+SALARY_BASIS_NET_LABEL = "Take-home pay, after my CPF deduction"
+SALARY_BASIS_GROSS_LABEL = "Already the gross figure"
 
-    st.caption("CPF (per CPF Board rates)")
-    cpf_status = st.selectbox(
-        "Residency status", cpf.STATUSES, index=0,
-        help="Singapore Citizens and Permanent Residents from their 3rd year use "
-             "CPF Board's Table 1 — the default.",
-    )
-    cpf_age_band = st.selectbox(
-        "Age band", cpf.AGE_BANDS, index=0,
-        help="Contribution rates step down with age. 55 and below pays the full "
-             "20% employee share.",
-    )
-    salary_basis_label = st.radio(
-        "The salary in my bank statement is…",
-        ["Take-home pay, after my CPF deduction", "Already the gross figure"],
-        help=(
-            "A Singapore salary credit is normally net of your own CPF share. On "
-            "that basis the gross is worked back from it, so Salary + CPF equals "
-            "true gross pay. Pick the second option to treat the credited figure "
-            "as gross and add CPF on top of it."
-        ),
-    )
-    salary_basis = BASIS_NET if salary_basis_label.startswith("Take-home") else BASIS_GROSS
-    include_employer_cpf = st.checkbox(
-        "Also count the employer's CPF share as revenue", value=False,
-        help="Off by default: your brief asked for the 20% employee contribution. "
-             "Switch on to show total cost of employment.",
-    )
-    st.caption(md(
-        f"Ordinary Wage ceiling: S${cpf.ow_ceiling_for(date.today()):,.0f}/month · "
-        f"annual salary ceiling S${cpf.ANNUAL_SALARY_CEILING:,.0f}"
-    ))
+SETTING_DEFAULTS = {
+    "cpf_status": cpf.STATUSES[0],
+    "cpf_age_band": cpf.AGE_BANDS[0],
+    "salary_basis_label": SALARY_BASIS_NET_LABEL,
+    "include_employer_cpf": False,
+    "employer_text": "",
+    "parents_text": "\n".join(load_parent_names()),
+    "transfer_threshold": 500.0,
+    "pdf_password": "",
+    "fallback_month": "",
+    "folder_path": os.environ.get("PFT_STATEMENTS", ""),
+}
+for _key, _default in SETTING_DEFAULTS.items():
+    st.session_state.setdefault(_key, _default)
 
-    st.divider()
-    st.caption("Categorisation")
-    employer_text = st.text_input(
-        "Employer name(s) on your salary credit",
-        value="",
-        help="Optional. Comma-separated. Helps catch salary credits that don't say "
-             "'SALARY' — e.g. 'ACME PTE LTD'.",
-    )
-    parents_text = st.text_area(
-        "Names that mean 'allowance to parents'",
-        value="\n".join(load_parent_names()),
-        height=90,
-        help="One per line. Transfers matching these names are booked as "
-             "Allowance to Parents. Kept in data/parent_names.txt, which is "
-             "gitignored — real names never reach the repository.",
-    )
-    transfer_threshold = st.number_input(
-        "Hold transfers above (SGD) for review", min_value=0.0, value=500.0, step=50.0,
-        help=(
-            "PayNow and bank transfers you have not named a merchant for are booked "
-            "to Food & Dining (out) or Additional Income (in), per your rules. Above "
-            "this amount that guess is too consequential, so they are held out of the "
-            "income statement and listed for you to assign. Set 0 to switch this off."
-        ),
-    )
+cpf_status = st.session_state["cpf_status"]
+cpf_age_band = st.session_state["cpf_age_band"]
+salary_basis = (BASIS_NET
+                if st.session_state["salary_basis_label"] == SALARY_BASIS_NET_LABEL
+                else BASIS_GROSS)
+include_employer_cpf = st.session_state["include_employer_cpf"]
+transfer_threshold = st.session_state["transfer_threshold"]
+pdf_password = st.session_state["pdf_password"]
+fallback_month = st.session_state["fallback_month"]
 
-    st.divider()
-    st.caption("PDF handling")
-    pdf_password = st.text_input(
-        "PDF password (if statements are locked)", type="password", value="",
-        help="Used only in memory to open the PDF; never written to disk.",
-    )
-    fallback_month = st.text_input(
-        "Fallback month for dateless PDFs (YYYY-MM)", value="",
-        help="Only used when a PDF has no statement period and no line dates.",
-    )
-
-    if os.path.exists(OVERRIDES_PATH):
-        st.divider()
-        st.caption(f"Learned category fixes: `{os.path.relpath(OVERRIDES_PATH, BASE_DIR)}`")
-        if st.button("Forget learned fixes", width="stretch"):
-            os.remove(OVERRIDES_PATH)
-            st.success("Cleared. Re-parse to apply.")
-
-employer_keywords = [e.strip() for e in employer_text.split(",") if e.strip()]
-parent_names = [p.strip() for p in parents_text.splitlines() if p.strip()]
+employer_keywords = [e.strip() for e in st.session_state["employer_text"].split(",")
+                     if e.strip()]
+parent_names = [p.strip() for p in st.session_state["parents_text"].splitlines()
+                if p.strip()]
 if parent_names != load_parent_names():
     save_parent_names(parent_names)
+
 PNL_ARGS = (salary_basis, cpf_status, cpf_age_band, include_employer_cpf)
 
 
 # ---------------------------------------------------------------------------
-# Header + loading
+# Header: the app's name, and one green control that opens everything you feed
+# it — statements and the settings that govern how they are read.
 # ---------------------------------------------------------------------------
-st.title("📊 Personal Finance Tracker")
-st.caption(
-    "Upload bank and credit card statements — CSV, Excel or PDF. "
-    "Everything is processed locally on this machine."
-)
-
-uploads = st.file_uploader(
-    "Statement files",
-    type=["csv", "tsv", "txt", "xlsx", "xlsm", "xls", "pdf"],
-    accept_multiple_files=True,
-    help="CSV/Excel need description, date, amount and currency. "
-         "PDF card statements need description and amount; dates are read when present.",
-)
-
-with st.expander("…or read them straight off this machine", expanded=False):
-    folder_path = st.text_input(
-        "Folder or file paths",
-        value=os.environ.get("PFT_STATEMENTS", ""),
-        placeholder="~/Downloads/statements     (or comma-separated file paths)",
-        help="Handy month to month: point at the folder you save statements into "
-             "instead of picking files by hand every time.",
+title_col, action_col = st.columns([4, 1])
+with title_col:
+    st.markdown(
+        '<div class="app-title">Your Personal Finance Tracker</div>'
+        '<div class="app-sub">Statements in, income statement out. '
+        'Everything is processed locally on this machine.</div>',
+        unsafe_allow_html=True,
     )
-    folder_clicked = st.button("Read from this path")
-
+with action_col:
+    intake_clicked = st.button(
+        "Add statements", key="open_intake", width="stretch",
+        help="Drop in statement files and set how they should be read.",
+    )
 
 def _collect_from_path(raw_path: str):
     """Expand a folder, a glob, or a comma-separated list into (name, bytes)."""
@@ -381,13 +354,108 @@ def _process(files):
         )
 
 
-col_a, col_b = st.columns([1, 4])
-with col_a:
-    parse_clicked = st.button("Process statements", type="primary",
-                              width="stretch", disabled=not uploads)
-with col_b:
-    if uploads:
-        st.caption(f"{len(uploads)} file(s) ready: " + ", ".join(f.name for f in uploads))
+@st.dialog("Add statements & settings", width="large")
+def intake_dialog():
+    """Everything the app needs fed to it, in one place off the main page."""
+    tab_files, tab_cpf, tab_rules = st.tabs(
+        ["Statements", "CPF", "Categorisation"])
+
+    with tab_files:
+        uploads = st.file_uploader(
+            "Drop statement files here",
+            type=["csv", "tsv", "txt", "xlsx", "xlsm", "xls", "pdf"],
+            accept_multiple_files=True,
+            key="intake_uploads",
+            help="CSV and Excel need description, date, amount and currency. "
+                 "PDF card statements need description and amount; dates are "
+                 "read when present.",
+        )
+        if uploads:
+            st.caption(f"{len(uploads)} file(s) ready: "
+                       + ", ".join(f.name for f in uploads))
+        if st.button("Process these files", type="primary",
+                     disabled=not uploads, width="stretch"):
+            (st.session_state.txns, st.session_state.docs,
+             st.session_state.notes) = _process(
+                [(f.name, f.getvalue()) for f in uploads])
+            st.rerun()
+
+        st.divider()
+        st.caption("Or read them straight off this machine — handy month to "
+                   "month, so you are not picking files by hand each time.")
+        st.text_input("Folder or file paths", key="folder_path",
+                      placeholder="~/Downloads/statements")
+        if st.button("Read from this path", width="stretch"):
+            files, problems = _collect_from_path(st.session_state["folder_path"])
+            for problem in problems:
+                st.warning(problem)
+            if files:
+                (st.session_state.txns, st.session_state.docs,
+                 st.session_state.notes) = _process(files)
+                st.rerun()
+            else:
+                st.error("Nothing readable at that path.")
+
+        st.divider()
+        st.caption("PDF handling")
+        st.text_input("PDF password (if statements are locked)", type="password",
+                      key="pdf_password",
+                      help="Used only in memory to open the PDF; never written "
+                           "to disk.")
+        st.text_input("Fallback month for dateless PDFs (YYYY-MM)",
+                      key="fallback_month",
+                      help="Only used when a PDF has no statement period and no "
+                           "line dates.")
+
+    with tab_cpf:
+        st.caption("CPF follows CPF Board's published rates.")
+        st.selectbox("Residency status", cpf.STATUSES, key="cpf_status",
+                     help="Singapore Citizens and Permanent Residents from their "
+                          "3rd year use CPF Board's Table 1 — the default.")
+        st.selectbox("Age band", cpf.AGE_BANDS, key="cpf_age_band",
+                     help="Contribution rates step down with age. 55 and below "
+                          "pays the full 20% employee share.")
+        st.radio(
+            "The salary in my bank statement is…",
+            [SALARY_BASIS_NET_LABEL, SALARY_BASIS_GROSS_LABEL],
+            key="salary_basis_label",
+            help="A Singapore salary credit is normally net of your own CPF "
+                 "share. On that basis the gross is worked back from it, so "
+                 "Salary + CPF equals true gross pay.",
+        )
+        st.checkbox("Also count the employer's CPF share as revenue",
+                    key="include_employer_cpf",
+                    help="Off by default: your brief asked for the 20% employee "
+                         "contribution. Switch on to show total cost of "
+                         "employment.")
+        st.caption(md(
+            f"Ordinary Wage ceiling: S${cpf.ow_ceiling_for(date.today()):,.0f}"
+            f"/month · annual salary ceiling S${cpf.ANNUAL_SALARY_CEILING:,.0f}"
+        ))
+
+    with tab_rules:
+        st.text_input("Employer name(s) on your salary credit",
+                      key="employer_text",
+                      help="Optional. Comma-separated. Helps catch salary "
+                           "credits that don't say 'SALARY'.")
+        st.text_area("Names that mean 'allowance to parents'", height=90,
+                     key="parents_text",
+                     help="One per line. Kept in data/parent_names.txt, which is "
+                          "gitignored — real names never reach the repository.")
+        st.number_input("Hold transfers above (SGD) for review",
+                        min_value=0.0, step=50.0, key="transfer_threshold",
+                        help="Transfers with no recognisable merchant are booked "
+                             "to Food & Dining (out) or Additional Income (in). "
+                             "Above this amount that guess is held back instead. "
+                             "Set 0 to switch this off.")
+        if os.path.exists(OVERRIDES_PATH):
+            st.divider()
+            st.caption(f"Learned category fixes: "
+                       f"`{os.path.relpath(OVERRIDES_PATH, BASE_DIR)}`")
+            if st.button("Forget learned fixes", width="stretch"):
+                os.remove(OVERRIDES_PATH)
+                st.success("Cleared. Re-parse to apply.")
+
 
 # Preload once per session when a path was supplied via the environment, so
 # `PFT_STATEMENTS=... streamlit run app.py` opens with results already on screen.
@@ -401,19 +469,8 @@ if preload and not st.session_state.preloaded:
         (st.session_state.txns, st.session_state.docs,
          st.session_state.notes) = _process(files)
 
-if folder_clicked and folder_path.strip():
-    files, problems = _collect_from_path(folder_path)
-    for problem in problems:
-        st.warning(problem)
-    if files:
-        (st.session_state.txns, st.session_state.docs,
-         st.session_state.notes) = _process(files)
-    else:
-        st.error("Nothing readable at that path.")
-
-if parse_clicked and uploads:
-    (st.session_state.txns, st.session_state.docs,
-     st.session_state.notes) = _process([(f.name, f.getvalue()) for f in uploads])
+if intake_clicked:
+    intake_dialog()
 
 txns = st.session_state.txns
 docs = st.session_state.docs
@@ -431,6 +488,8 @@ if docs:
         st.info(md(note))
 
 if not txns:
+    st.markdown("")
+    st.info("Nothing loaded yet — open **Add statements** above to begin.")
     with st.expander("What the app expects in each file", expanded=not docs):
         st.markdown(
             """
@@ -850,28 +909,76 @@ def render_review(month_key: str):
 # ---------------------------------------------------------------------------
 # One tab per month, plus overview tabs
 # ---------------------------------------------------------------------------
-def _strip_label(option: str) -> str:
-    """Month keys render as 'May 2026'; the overview entries pass through."""
-    return month_short(option) if option in months else option
+# ---------------------------------------------------------------------------
+# Navigation: a year in the sidebar expands to its months.
+#
+# Streamlit has no tree widget, so each year is an expander holding buttons.
+# The chosen view lives in session state rather than in a widget's own value,
+# so opening a dialog cannot reset it.
+# ---------------------------------------------------------------------------
+YEAR_VIEW, MONTH_VIEW, LOG_VIEW, EXPORT_VIEW = "year", "month", "log", "export"
+
+tree = years_with_months(txns)
+default_year = next(iter(tree))
+
+if "view" not in st.session_state:
+    st.session_state.view = (YEAR_VIEW, default_year)
+# A reload with different statements can strand a view on a month that is gone.
+if (st.session_state.view[0] == MONTH_VIEW
+        and st.session_state.view[1] not in months):
+    st.session_state.view = (YEAR_VIEW, default_year)
+if st.session_state.view[0] == YEAR_VIEW and st.session_state.view[1] not in tree:
+    st.session_state.view = (YEAR_VIEW, default_year)
+
+view_kind, view_key = st.session_state.view
 
 
-OVERVIEW = "Overview"
-PARSING_LOG = "Parsing log"
-EXPORT = "Export"
+def go(kind: str, key):
+    st.session_state.view = (kind, key)
 
-# The overview leads and is the landing page; months follow in order.
-STRIP_OPTIONS = [OVERVIEW] + months + [PARSING_LOG, EXPORT]
 
-# The month strip is a radio group dressed as a tab bar, not st.tabs: opening a
-# dialog remounts a tab strip and would bounce you back to the first entry every
-# time you drilled into a line item. A radio keeps its position across reruns.
-month_choice = st.radio(
-    "View", STRIP_OPTIONS, horizontal=True,
-    index=0, format_func=_strip_label,
-    key="month_strip", label_visibility="collapsed",
-)
+with st.sidebar:
+    st.markdown('<div class="nav-brand">Your Personal<br>Finance Tracker</div>',
+                unsafe_allow_html=True)
+    st.markdown('<div class="nav-heading">Periods</div>', unsafe_allow_html=True)
 
-if month_choice in months:
+    for year, year_months in tree.items():
+        showing_this_year = (
+            (view_kind == YEAR_VIEW and view_key == year)
+            or (view_kind == MONTH_VIEW and view_key.startswith(f"{year}-"))
+        )
+        with st.expander(year, expanded=showing_this_year):
+            st.button(
+                f"{year} dashboard", key=f"nav-year-{year}", width="stretch",
+                type=("primary" if (view_kind == YEAR_VIEW and view_key == year)
+                      else "tertiary"),
+                on_click=go, args=(YEAR_VIEW, year),
+            )
+            for month_key in year_months:
+                flagged = int(review_frame(txns, month_key).shape[0])
+                label = MONTH_LABELS[int(month_key.split("-")[1]) - 1]
+                st.button(
+                    f"{label}" + (f"  ·  {flagged} to review" if flagged else ""),
+                    key=f"nav-month-{month_key}", width="stretch",
+                    type=("primary" if (view_kind == MONTH_VIEW
+                                        and view_key == month_key)
+                          else "tertiary"),
+                    on_click=go, args=(MONTH_VIEW, month_key),
+                )
+
+    st.markdown('<div class="nav-heading">Tools</div>', unsafe_allow_html=True)
+    st.button("Parsing log", key="nav-log", width="stretch",
+              type=("primary" if view_kind == LOG_VIEW else "tertiary"),
+              on_click=go, args=(LOG_VIEW, None))
+    st.button("Export", key="nav-export", width="stretch",
+              type=("primary" if view_kind == EXPORT_VIEW else "tertiary"),
+              on_click=go, args=(EXPORT_VIEW, None))
+
+
+month_choice = view_key if view_kind == MONTH_VIEW else None
+
+if view_kind == MONTH_VIEW:
+
     month_key = month_choice
     pnl = build_pnl(txns, month_key, *PNL_ARGS)
     review_count = int(review_frame(txns, month_key).shape[0])
@@ -888,17 +995,18 @@ if month_choice in months:
                if pnl.savings_rate is not None else None),
     )
 
-    sub = st.tabs([
-        "Income Statement",
-        f"Transactions ({sum(1 for t in txns if t.month == month_key)})",
-        f"⚠ Review ({review_count})",
-    ])
-    with sub[0]:
-        render_income_statement(month_key, pnl)
-    with sub[1]:
-        render_transactions(month_key)
-    with sub[2]:
-        render_review(month_key)
+    with st.container(key="month_subtabs"):
+        sub = st.tabs([
+            "Income Statement",
+            f"Transactions ({sum(1 for t in txns if t.month == month_key)})",
+            f"⚠ Review ({review_count})",
+        ])
+        with sub[0]:
+            render_income_statement(month_key, pnl)
+        with sub[1]:
+            render_transactions(month_key)
+        with sub[2]:
+            render_review(month_key)
 
     # A drill-down requested above is opened here, outside the sub-tabs.
     pending = st.session_state.drill_shown.pop("pending", None)
@@ -912,198 +1020,239 @@ if month_choice in months:
 
 
 # --- Annual overview: the landing page -------------------------------------
-elif month_choice == OVERVIEW:
-    summary = annual_summary(txns, *PNL_ARGS)
-    trend = monthly_trend(txns, *PNL_ARGS)
+elif view_kind == YEAR_VIEW:
+    year = view_key
+    year_months = months_in_year(txns, year)
+    summary = annual_summary(
+        [t for t in txns if t.month in year_months], *PNL_ARGS)
 
-    st.subheader("Annual overview")
+    st.subheader(f"{year} dashboard")
     st.caption(md(
         f"{summary.span} · {summary.month_count} month(s) · "
-        f"{summary.transaction_count} transactions across "
-        f"{len({t.source_account for t in txns})} accounts and cards"
+        f"{sum(1 for t in txns if t.month in year_months)} transactions"
     ))
 
-    metrics = st.columns(5)
-    metrics[0].metric("Total Revenues", f"S${summary.total_revenue:,.0f}")
-    metrics[1].metric("Total Expenses", f"S${summary.total_expenses:,.0f}")
-    metrics[2].metric(
-        "Net Income", f"S${summary.net_income:,.0f}",
-        delta=(f"{summary.savings_rate:,.1f}% saved"
-               if summary.savings_rate is not None else None),
-    )
-    metrics[3].metric("Avg Monthly Spend", f"S${summary.avg_monthly_expenses:,.0f}")
-    metrics[4].metric("Avg Monthly Net", f"S${summary.avg_monthly_net:,.0f}")
+    # --- The three pies -----------------------------------------------------
+    income = income_breakdown(txns, year_months, *PNL_ARGS)
+    expenses = expense_breakdown(txns, year_months)
+    savings = savings_split(txns, year_months, *PNL_ARGS)
 
-    st.divider()
-
-    # --- The dot plot ------------------------------------------------------
-    st.markdown("##### Spending by category, month on month")
-    st.caption(
-        "Amounts in SGD. One dot per month, joined so you can read the direction "
-        "of travel. Categories are ordered by total spend."
-    )
-    dots = category_by_month(txns)
-    if dots.empty:
-        st.info("No categorised spending yet.")
-    else:
-        order = (dots.groupby("Category")["Amount"].sum()
-                 .sort_values(ascending=False).index.tolist())
-        month_order = [month_short(m) for m in months]
-        month_colours = _month_ramp(len(month_order))
-
-        base = alt.Chart(dots).transform_calculate(
+    def donut(frame, label_field, colours, total, title, subtitle):
+        st.markdown(f'<div class="pie-title">{title}</div>'
+                    f'<div class="pie-total">S${total:,.0f}</div>'
+                    f'<div class="pie-sub">{subtitle}</div>',
+                    unsafe_allow_html=True)
+        if frame.empty:
+            st.caption("Nothing to show for this year.")
+            return
+        chart = alt.Chart(frame).transform_calculate(
             AmountLabel="format(datum.Amount, ',.2f')"
-        )
-        # A zero rule, so a negative category (a refund with no matching spend)
-        # is legible as such rather than just "left of the others".
-        zero = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(
-            color="#3A4048", strokeWidth=1,
-        ).encode(x="x:Q")
-        # The connecting line is the point of the chart: it turns twelve
-        # separate readings into one trajectory per category.
-        line = base.mark_line(
-            color="#3A4048", strokeWidth=1.4, point=False,
-        ).encode(
-            y=alt.Y("Category:N", sort=order, title=None,
-                    axis=alt.Axis(labelLimit=200, labelFontSize=12,
-                                  domain=False, ticks=False)),
-            x=alt.X("Amount:Q", title=None,
-                    axis=alt.Axis(format=",.0f", grid=True, gridColor="#1B1E24",
-                                  domain=False, ticks=False)),
-            detail="Category:N",
-        )
-        points = base.mark_point(filled=True, size=115, opacity=1).encode(
-            y=alt.Y("Category:N", sort=order, title=None),
-            x="Amount:Q",
+        ).mark_arc(innerRadius=58, outerRadius=96, stroke="#0B0C0E",
+                   strokeWidth=2).encode(
+            theta=alt.Theta("Amount:Q", stack=True),
             color=alt.Color(
-                "MonthLabel:N", sort=month_order, title="Month",
-                scale=alt.Scale(domain=month_order, range=month_colours),
-                legend=alt.Legend(orient="top", direction="horizontal",
-                                  titleFontSize=11, labelFontSize=11),
+                f"{label_field}:N", title=None,
+                sort=list(frame[label_field]),
+                scale=alt.Scale(domain=list(frame[label_field]), range=colours),
+                legend=alt.Legend(orient="bottom", columns=1, symbolType="square",
+                                  labelFontSize=11, labelLimit=180),
             ),
-            tooltip=[
-                alt.Tooltip("Category:N"),
-                alt.Tooltip("MonthLabel:N", title="Month"),
-                alt.Tooltip("AmountLabel:N", title="Amount (SGD)"),
-                alt.Tooltip("Transactions:Q"),
-                alt.Tooltip("Section:N"),
-            ],
-        )
-        st.altair_chart(
-            (zero + line + points).properties(
-                height=32 * len(order) + 60,
-                padding={"left": 12, "right": 8, "top": 4, "bottom": 4},
-            )
-                           .configure_view(strokeWidth=0)
-                           .configure_axis(labelColor="#9AA4B2",
-                                           titleColor="#9AA4B2")
-                           .configure_legend(labelColor="#C6CBD3",
-                                             titleColor="#9AA4B2"),
-            use_container_width=True,
-        )
-
-    st.divider()
-
-    # --- Revenue / expense / net trajectory --------------------------------
-    left, right = st.columns([3, 2])
-    with left:
-        st.markdown("##### Revenues, expenses and net income")
-        st.caption("Amounts in SGD.")
-        if len(trend) <= 1:
-            st.caption("Load more than one month to see a trajectory.")
-        shaped = trend.melt(
-            id_vars="Month",
-            value_vars=["Total Revenues", "Total Expenses", "Net Income"],
-            var_name="Measure", value_name="Amount",
-        )
-        month_labels = list(trend["Month"])
-        # One mark, not a line layer plus a point layer: a layered chart reserves
-        # no left gutter under Streamlit's autosize, so "15,000" gets drawn at a
-        # negative x and vanishes off the canvas. `point=` on mark_line gives the
-        # same connected dots from a single, correctly measured mark.
-        flow = alt.Chart(shaped).transform_calculate(
-            AmountLabel="format(datum.Amount, ',.2f')"
-        ).mark_line(
-            strokeWidth=2,
-            point=alt.OverlayMarkDef(filled=True, size=90),
-        ).encode(
-            x=alt.X("Month:N", sort=month_labels, title=None,
-                    axis=alt.Axis(labelAngle=0, domain=False, ticks=False)),
-            y=alt.Y("Amount:Q", title=None,
-                    axis=alt.Axis(format="~s", grid=True, gridColor="#1B1E24",
-                                  domain=False, ticks=False, labelPadding=6)),
-            color=alt.Color("Measure:N", title=None,
-                            legend=alt.Legend(orient="top")),
-            tooltip=[alt.Tooltip("Month:N"), alt.Tooltip("Measure:N"),
+            order=alt.Order("Amount:Q", sort="descending"),
+            tooltip=[alt.Tooltip(f"{label_field}:N", title=title),
                      alt.Tooltip("AmountLabel:N", title="Amount (SGD)")],
         )
         st.altair_chart(
-            flow.properties(height=300)
-                .configure_view(strokeWidth=0)
-                .configure_axis(labelColor="#9AA4B2", titleColor="#9AA4B2")
-                .configure_legend(labelColor="#C6CBD3"),
+            chart.properties(height=290)
+                 .configure_view(strokeWidth=0)
+                 .configure_legend(labelColor="#C6CBD3"),
             use_container_width=True,
         )
 
-    with right:
-        st.markdown("##### Fixed vs variable")
-        split = trend.melt(
-            id_vars="Month", value_vars=["Fixed Expenses", "Variable Expenses"],
-            var_name="Kind", value_name="Amount",
-        )
-        st.altair_chart(
-            alt.Chart(split).mark_bar().encode(
-                x=alt.X("Month:N", sort=list(trend["Month"]), title=None,
-                        axis=alt.Axis(labelAngle=0, domain=False, ticks=False)),
-                y=alt.Y("Amount:Q", title=None, stack="zero",
-                        axis=alt.Axis(format="~s", grid=True, gridColor="#1B1E24",
-                                      domain=False, ticks=False, labelPadding=6)),
-                color=alt.Color("Kind:N", title=None,
-                                legend=alt.Legend(orient="top")),
-                tooltip=["Month", "Kind", alt.Tooltip("Amount:Q", format=",.2f")],
-            ).properties(height=300)
-             .configure_view(strokeWidth=0)
-             .configure_axis(labelColor="#9AA4B2", titleColor="#9AA4B2")
-             .configure_legend(labelColor="#C6CBD3"),
-            use_container_width=True,
-        )
+    # Cool tones for fixed commitments, warm for discretionary spending, so the
+    # split the brief asks about reads off the wheel without a second legend.
+    FIXED_TONES = ["#8AB4F8", "#6E8FD6", "#5C73B8", "#4A5C99", "#3B4A7D"]
+    VARIABLE_TONES = ["#F2A26B", "#E4757B", "#D9628F", "#C97FD0", "#E0A64F",
+                      "#CF8A5C", "#B9707E", "#A8628F"]
+
+    def expense_colours(frame):
+        cool = iter(FIXED_TONES * 3)
+        warm = iter(VARIABLE_TONES * 3)
+        return [next(cool) if section == "Fixed" else next(warm)
+                for section in frame["Section"]]
+
+    pie_cols = st.columns(3, gap="large")
+    with pie_cols[0]:
+        donut(income, "Source", ["#7DD3C0", "#4FB39E", "#2E8C79", "#1E6B5B"],
+              summary.total_revenue, "Income",
+              "Revenue by source, CPF included")
+    with pie_cols[1]:
+        fixed_total = sum(expenses.loc[expenses["Section"] == "Fixed", "Amount"]) \
+            if not expenses.empty else 0.0
+        variable_total = sum(expenses.loc[expenses["Section"] == "Variable", "Amount"]) \
+            if not expenses.empty else 0.0
+        donut(expenses, "Category", expense_colours(expenses) if not expenses.empty else [],
+              summary.total_expenses, "Expenses",
+              f"Fixed S${fixed_total:,.0f} (cool) · Variable "
+              f"S${variable_total:,.0f} (warm)")
+    with pie_cols[2]:
+        rate = summary.savings_rate
+        donut(savings, "Part", ["#7DD3C0", "#39404A"],
+              summary.net_income, "Savings",
+              (f"{rate:,.1f}% of revenue kept" if rate is not None
+               else "No revenue recorded"))
+
+    negatives = (expenses[expenses["Amount"] < 0] if not expenses.empty
+                 else expenses)
+    if not negatives.empty:
+        st.caption(md(
+            "Not on the Expenses pie, because a wedge cannot be negative: "
+            + ", ".join(f"{r.Category} S${r.Amount:,.2f}"
+                        for r in negatives.itertuples())
+            + " — a refund with no matching spend this year."
+        ))
 
     st.divider()
-    st.markdown("##### Month by month")
-    shown = trend.copy()
-    for column in ("Total Revenues", "Fixed Expenses", "Variable Expenses",
-                   "Total Expenses", "Net Income"):
-        shown[column] = shown[column].map(lambda v: f"{v:,.2f}")
-    shown["Savings Rate"] = trend["Savings Rate"].map(
-        lambda v: "" if pd.isna(v) else f"{v:.1f}%"
+
+    # --- Year-to-date dot plot with trendlines ------------------------------
+    st.markdown("##### Year to date, month on month")
+    st.caption(
+        "Amounts in SGD. A dot per month for each measure, with a dashed "
+        "least-squares trendline through it. Months with no statements loaded "
+        "are left out rather than drawn as zero."
     )
-    st.dataframe(shown, hide_index=True, width="stretch")
+    series = ytd_series(txns, year_months, *PNL_ARGS)
+    if series.empty:
+        st.info("No months loaded for this year.")
+    else:
+        order = [month_short(m) for m in year_months]
+        measures = ["Income", "Expenses", "Savings"]
+        measure_colours = ["#7DD3C0", "#E4757B", "#8AB4F8"]
+        colour_scale = alt.Scale(domain=measures, range=measure_colours)
+
+        x_axis = alt.X("MonthLabel:N", sort=order, title=None,
+                       axis=alt.Axis(labelAngle=0, domain=False, ticks=False))
+        y_axis = alt.Y("Amount:Q", title=None,
+                       axis=alt.Axis(format="~s", grid=True, gridColor="#1B1E24",
+                                     domain=False, ticks=False, labelPadding=6))
+
+        offset = alt.XOffset("Measure:N", sort=measures)
+
+        dots = alt.Chart(series).transform_calculate(
+            AmountLabel="format(datum.Amount, ',.2f')"
+        ).mark_point(filled=True, size=170, opacity=1,
+                     stroke="#0B0C0E", strokeWidth=1.5).encode(
+            x=x_axis, y=y_axis, xOffset=offset,
+            color=alt.Color("Measure:N", title=None, scale=colour_scale,
+                            legend=alt.Legend(orient="top")),
+            tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
+                     alt.Tooltip("Measure:N"),
+                     alt.Tooltip("AmountLabel:N", title="Amount (SGD)")],
+        )
+
+        fits = trendlines(series)
+        layers = [alt.Chart(series).mark_rule(color="#2A2F38", strokeWidth=1)
+                  .encode(y=alt.datum(0))]
+        if not fits.empty:
+            layers.append(
+                alt.Chart(fits).mark_line(strokeDash=[6, 4], strokeWidth=1.6,
+                                          opacity=0.85).encode(
+                    x=alt.X("MonthLabel:N", sort=order, title=None),
+                    y=alt.Y("Fit:Q", title=None),
+                    xOffset=offset,
+                    color=alt.Color("Measure:N", title=None, scale=colour_scale),
+                )
+            )
+        layers.append(dots)
+
+        st.altair_chart(
+            alt.layer(*layers).properties(height=380)
+               .configure_view(strokeWidth=0)
+               .configure_axis(labelColor="#9AA4B2", titleColor="#9AA4B2")
+               .configure_legend(labelColor="#C6CBD3"),
+            use_container_width=True,
+        )
+        if len(year_months) < 2:
+            st.caption("One month loaded, so there is no trend to fit yet.")
+
+    # --- Everything the annual view carried before, kept but out of the way --
+    with st.expander("More annual detail", expanded=False):
+        trend = monthly_trend([t for t in txns if t.month in year_months], *PNL_ARGS)
+        st.markdown("##### Spending by category, month on month")
+        dots_frame = category_by_month(txns, year_months)
+        if dots_frame.empty:
+            st.info("No categorised spending yet.")
+        else:
+            cat_order = (dots_frame.groupby("Category")["Amount"].sum()
+                         .sort_values(ascending=False).index.tolist())
+            month_order = [month_short(m) for m in year_months]
+            month_colours = _month_ramp(len(month_order))
+            base = alt.Chart(dots_frame).transform_calculate(
+                AmountLabel="format(datum.Amount, ',.2f')"
+            )
+            zero = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(
+                color="#3A4048", strokeWidth=1).encode(x="x:Q")
+            line = base.mark_line(color="#3A4048", strokeWidth=1.4).encode(
+                y=alt.Y("Category:N", sort=cat_order, title=None,
+                        axis=alt.Axis(labelLimit=200, labelFontSize=12,
+                                      domain=False, ticks=False)),
+                x=alt.X("Amount:Q", title=None,
+                        axis=alt.Axis(format=",.0f", grid=True,
+                                      gridColor="#1B1E24", domain=False,
+                                      ticks=False)),
+                detail="Category:N",
+            )
+            points = base.mark_point(filled=True, size=115, opacity=1).encode(
+                y=alt.Y("Category:N", sort=cat_order, title=None),
+                x="Amount:Q",
+                color=alt.Color("MonthLabel:N", sort=month_order, title="Month",
+                                scale=alt.Scale(domain=month_order,
+                                                range=month_colours),
+                                legend=alt.Legend(orient="top",
+                                                  direction="horizontal")),
+                tooltip=[alt.Tooltip("Category:N"),
+                         alt.Tooltip("MonthLabel:N", title="Month"),
+                         alt.Tooltip("AmountLabel:N", title="Amount (SGD)"),
+                         alt.Tooltip("Transactions:Q")],
+            )
+            st.altair_chart(
+                (zero + line + points)
+                .properties(height=32 * len(cat_order) + 60)
+                .configure_view(strokeWidth=0)
+                .configure_axis(labelColor="#9AA4B2", titleColor="#9AA4B2")
+                .configure_legend(labelColor="#C6CBD3", titleColor="#9AA4B2"),
+                use_container_width=True,
+            )
+
+        st.markdown("##### Month by month")
+        shown = trend.copy()
+        for column in ("Total Revenues", "Fixed Expenses", "Variable Expenses",
+                       "Total Expenses", "Net Income"):
+            shown[column] = shown[column].map(lambda v: f"{v:,.2f}")
+        shown["Savings Rate"] = trend["Savings Rate"].map(
+            lambda v: "" if pd.isna(v) else f"{v:.1f}%")
+        st.dataframe(shown, hide_index=True, width="stretch")
 
     notes = []
     if summary.review_count:
         notes.append(
-            f"**{summary.review_count}** transaction(s) still need review — open a "
-            f"month and check its ⚠ Review tab."
-        )
+            f"**{summary.review_count}** transaction(s) still need review — open "
+            f"a month and check its Review tab.")
     if summary.excluded_total:
         notes.append(
             f"**S${summary.excluded_total:,.2f}** of transfers sits outside these "
-            f"totals: card bill payments, movements between your own accounts, and "
-            f"transfers too large to categorise on a guess."
-        )
+            f"totals: card bill payments, movements between your own accounts, "
+            f"and transfers too large to categorise on a guess.")
     if summary.cpf_employee:
         notes.append(
-            f"CPF included in revenue: **S${summary.cpf_employee:,.2f}** employee "
-            f"share" + (f", plus S${summary.cpf_employer:,.2f} employer share"
-                        if include_employer_cpf else
-                        f" (employer's S${summary.cpf_employer:,.2f} not counted)")
-            + "."
-        )
+            f"CPF counted in Income: **S${summary.cpf_employee:,.2f}** employee "
+            f"share"
+            + (f", plus S${summary.cpf_employer:,.2f} employer share."
+               if include_employer_cpf
+               else f" (employer's S${summary.cpf_employer:,.2f} not counted)."))
     for note in notes:
         st.caption(md(note))
 
-# --- Parsing log -----------------------------------------------------------
-elif month_choice == PARSING_LOG:
+elif view_kind == LOG_VIEW:
     st.subheader("What each file produced")
     for doc in docs:
         with st.expander(
@@ -1142,7 +1291,7 @@ elif month_choice == PARSING_LOG:
                 )
 
 # --- Export ----------------------------------------------------------------
-elif month_choice == EXPORT:
+elif view_kind == EXPORT_VIEW:
     st.subheader("Export to Excel")
     st.caption(
         "One workbook: a Summary sheet, then a Transactions sheet and an Income "

@@ -44,7 +44,14 @@ from finance.report import (
     build_pnl,
     category_by_month,
     compilation_frame,
+    expense_breakdown,
+    income_breakdown,
     line_transactions,
+    months_in_year,
+    savings_split,
+    trendlines,
+    years_with_months,
+    ytd_series,
 )
 from finance.rules import Categoriser
 
@@ -626,3 +633,134 @@ def test_dot_plot_default_excludes_revenue(parsed):
     frame = category_by_month(txns)
     assert REVENUE not in set(frame["Section"])
     assert CAT_SALARY not in set(frame["Category"])
+
+
+# ---------------------------------------------------------------------------
+# Dashboard data: year tree, the three pies, and the YTD series
+# ---------------------------------------------------------------------------
+def test_years_with_months_groups_and_sorts(parsed):
+    txns, _docs, _notes = parsed
+    tree = years_with_months(txns)
+    assert list(tree) == ["2025"]
+    assert tree["2025"] == ["2025-05", "2025-06"]
+    assert months_in_year(txns, "2025") == ["2025-05", "2025-06"]
+    assert months_in_year(txns, "1999") == []
+
+
+def test_income_breakdown_sums_to_total_revenue(parsed):
+    txns, _docs, _notes = parsed
+    months = available_months(txns)
+    frame = income_breakdown(txns, months)
+    expected = sum(build_pnl(txns, m).total_revenue for m in months)
+    assert frame["Amount"].sum() == pytest.approx(expected, abs=0.02)
+    assert "CPF — employee share" in set(frame["Source"])
+    # A zero source is dropped rather than drawn as an invisible wedge.
+    assert (frame["Amount"] != 0).all()
+
+
+def test_income_breakdown_adds_the_employer_slice_when_asked(parsed):
+    txns, _docs, _notes = parsed
+    months = available_months(txns)
+    without = income_breakdown(txns, months)
+    with_employer = income_breakdown(txns, months, include_employer_cpf=True)
+    assert "CPF — employer share" not in set(without["Source"])
+    assert "CPF — employer share" in set(with_employer["Source"])
+    assert with_employer["Amount"].sum() > without["Amount"].sum()
+
+
+def test_expense_breakdown_is_tagged_and_ordered(parsed):
+    txns, _docs, _notes = parsed
+    frame = expense_breakdown(txns, available_months(txns))
+    assert set(frame["Section"]) <= {"Fixed", "Variable"}
+    assert list(frame["Amount"]) == sorted(frame["Amount"], reverse=True)
+    # Sections must match where each category actually sits in the statement.
+    from finance.model import FIXED_CATEGORIES
+    for row in frame.itertuples():
+        expected = "Fixed" if row.Category in FIXED_CATEGORIES else "Variable"
+        assert row.Section == expected, row.Category
+
+
+def test_expense_breakdown_sums_to_total_expenses(parsed):
+    txns, _docs, _notes = parsed
+    months = available_months(txns)
+    frame = expense_breakdown(txns, months)
+    expected = sum(build_pnl(txns, m).total_expenses for m in months)
+    assert frame["Amount"].sum() == pytest.approx(expected, abs=0.02)
+
+
+def test_savings_split_covers_the_whole_of_revenue(parsed):
+    txns, _docs, _notes = parsed
+    months = available_months(txns)
+    frame = savings_split(txns, months)
+    expected = sum(build_pnl(txns, m).total_revenue for m in months)
+    assert frame["Amount"].sum() == pytest.approx(expected, abs=0.02)
+    assert set(frame["Part"]) <= {"Saved", "Spent"}
+
+
+def test_savings_split_drops_a_negative_wedge():
+    """A month that spent more than it earned cannot be drawn as a pie."""
+    from finance.model import Transaction, CAT_DINING, DEBIT
+    from datetime import date as _date
+    spent_only = [Transaction(date=_date(2025, 6, 3), description="Lunch",
+                              raw_description="LUNCH", amount_sgd=40.0,
+                              direction=DEBIT, category=CAT_DINING)]
+    frame = savings_split(spent_only, ["2025-06"])
+    assert list(frame["Part"]) == ["Spent"]
+
+
+def test_ytd_series_has_a_row_per_month_and_measure(parsed):
+    txns, _docs, _notes = parsed
+    months = available_months(txns)
+    frame = ytd_series(txns, months)
+    assert len(frame) == len(months) * 3
+    assert set(frame["Measure"]) == {"Income", "Expenses", "Savings"}
+    # Savings is Income minus Expenses, month by month.
+    wide = frame.pivot(index="Month", columns="Measure", values="Amount")
+    for month in months:
+        assert wide.loc[month, "Savings"] == pytest.approx(
+            wide.loc[month, "Income"] - wide.loc[month, "Expenses"], abs=0.02)
+
+
+def test_ytd_series_omits_months_with_no_statements(parsed):
+    """Padding the year to twelve rows would draw a zero for a month whose
+    statements simply are not loaded, which reads as 'earned nothing'."""
+    txns, _docs, _notes = parsed
+    frame = ytd_series(txns, available_months(txns))
+    assert set(frame["Month"]) == set(available_months(txns))
+    assert "2025-01" not in set(frame["Month"])
+
+
+def test_trendlines_give_two_endpoints_per_measure(parsed):
+    txns, _docs, _notes = parsed
+    series = ytd_series(txns, available_months(txns))
+    fits = trendlines(series)
+    assert len(fits) == 6                       # 3 measures x 2 endpoints
+    assert set(fits["Measure"]) == {"Income", "Expenses", "Savings"}
+
+
+def test_trendline_is_a_least_squares_fit():
+    """A straight input must come back as itself."""
+    import pandas as _pd
+    series = _pd.DataFrame([
+        {"Month": f"2025-0{i+1}", "MonthLabel": f"M{i}", "Order": i,
+         "Measure": "Income", "Amount": 100.0 + 50.0 * i}
+        for i in range(4)
+    ])
+    fits = trendlines(series).sort_values("Order")
+    assert list(fits["Fit"]) == pytest.approx([100.0, 250.0])
+
+
+def test_trendlines_need_two_points():
+    import pandas as _pd
+    single = _pd.DataFrame([{"Month": "2025-06", "MonthLabel": "Jun", "Order": 0,
+                             "Measure": "Income", "Amount": 10.0}])
+    assert trendlines(single).empty
+    assert trendlines(_pd.DataFrame()).empty
+
+
+def test_dashboard_frames_survive_empty_input():
+    assert income_breakdown([], []).empty
+    assert expense_breakdown([], []).empty
+    assert savings_split([], []).empty
+    assert ytd_series([], []).empty
+    assert years_with_months([]) == {}

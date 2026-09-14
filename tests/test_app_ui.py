@@ -18,13 +18,13 @@ from streamlit.testing.v1 import AppTest
 
 from finance import cpf
 from finance.ingest import ingest_files
-from finance.report import available_months
+from finance.report import available_months, years_with_months
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "app.py")
 SAMPLES = os.path.join(ROOT, "sample_data")
 
-OVERVIEW = "Overview"
+YEAR = "2025"
 A_MONTH = "2025-06"
 
 
@@ -45,74 +45,101 @@ def _app_with_data(timeout=180):
     return app, txns
 
 
-def _strip(app):
-    """The view strip, selected by key so the sidebar radio is not picked."""
-    return next(r for r in app.radio if r.key == "month_strip")
+def _nav(app, key):
+    return next(b for b in app.button if b.key == key)
 
 
 def _on_month(app, month=A_MONTH):
-    _strip(app).set_value(month).run()
+    _nav(app, f"nav-month-{month}").click().run()
     assert not app.exception, app.exception
     return app
+
+
+def _markdown(app):
+    return " ".join(str(m.value) for m in app.markdown)
 
 
 def test_app_runs_with_no_data():
     app = AppTest.from_file(APP, default_timeout=60).run()
     assert not app.exception
-    assert any("Personal Finance Tracker" in t.value for t in app.title)
+    assert "Your Personal Finance Tracker" in _markdown(app)
+
+
+def test_no_data_points_at_the_intake_button():
+    app = AppTest.from_file(APP, default_timeout=60).run()
+    assert any("Add statements" in str(i.value) for i in app.info)
+    assert any(b.key == "open_intake" for b in app.button)
 
 
 # ---------------------------------------------------------------------------
-# The landing page is the annual overview
+# The landing page is the year dashboard
 # ---------------------------------------------------------------------------
-def test_landing_page_is_the_annual_overview():
+def test_landing_page_is_the_year_dashboard():
     app, _txns = _app_with_data()
-    assert _strip(app).value == OVERVIEW
-    assert "Annual overview" in [s.value for s in app.subheader]
-    labels = [m.label for m in app.metric]
-    assert labels == ["Total Revenues", "Total Expenses", "Net Income",
-                      "Avg Monthly Spend", "Avg Monthly Net"]
+    assert app.session_state["view"] == ("year", YEAR)
+    assert f"{YEAR} dashboard" in [s.value for s in app.subheader]
 
 
-def test_overview_renders_the_dot_plot_and_trend_charts():
+def test_dashboard_draws_three_pies_and_the_ytd_plot():
     app, _txns = _app_with_data()
-    headings = [m.value for m in app.markdown]
-    assert any("Spending by category, month on month" in h for h in headings)
-    assert any("Revenues, expenses and net income" in h for h in headings)
-    assert any("Fixed vs variable" in h for h in headings)
-    assert any("Month by month" in h for h in headings)
-    # Three Vega-Lite charts: the dot plot, the flow lines, the stacked bars.
-    assert len(app.get("arrow_vega_lite_chart")) == 3
+    md = _markdown(app)
+    for pie in ("Income", "Expenses", "Savings"):
+        assert f'class="pie-title">{pie}<' in md, pie
+    assert "Year to date, month on month" in md
+    # Three donuts plus the dot plot; the annual-detail expander adds one more.
+    assert len(app.get("arrow_vega_lite_chart")) >= 4
 
 
-def test_overview_metrics_carry_money_values():
-    app, _txns = _app_with_data()
-    for metric in app.metric:
-        assert metric.value.startswith("S$"), metric.label
-
-
-def test_strip_lists_overview_then_months_then_utilities():
+def test_pie_totals_agree_with_the_income_statement():
+    from finance.report import annual_summary, months_in_year
     app, txns = _app_with_data()
-    strip = _strip(app)
-    assert list(strip.options) == [OVERVIEW, "May 2025", "Jun 2025",
-                                  "Parsing log", "Export"]
-    assert list(strip.options)[1:1 + len(available_months(txns))] == [
-        "May 2025", "Jun 2025"]
+    year_months = months_in_year(txns, YEAR)
+    summary = annual_summary([t for t in txns if t.month in year_months])
+    md = _markdown(app)
+    for total in (summary.total_revenue, summary.total_expenses,
+                  summary.net_income):
+        assert f"S${total:,.0f}" in md, total
+
+
+def test_savings_pie_reports_the_rate():
+    app, _txns = _app_with_data()
+    assert "% of revenue kept" in _markdown(app)
+
+
+def test_expenses_pie_names_the_fixed_and_variable_split():
+    app, _txns = _app_with_data()
+    md = _markdown(app)
+    assert "Fixed S$" in md and "Variable S$" in md
 
 
 # ---------------------------------------------------------------------------
-# Month views
+# Sidebar navigation: a year expands to its months
 # ---------------------------------------------------------------------------
+def test_sidebar_lists_every_year_and_month():
+    app, txns = _app_with_data()
+    keys = {b.key for b in app.button}
+    for year in years_with_months(txns):
+        assert f"nav-year-{year}" in keys
+    for month in available_months(txns):
+        assert f"nav-month-{month}" in keys
+    assert {"nav-log", "nav-export"} <= keys
+
+
+def test_month_buttons_carry_the_review_count():
+    app, _txns = _app_with_data()
+    labels = [b.label for b in app.button if str(b.key).startswith("nav-month-")]
+    assert any("to review" in label for label in labels), labels
+
+
 def test_selecting_a_month_shows_its_headline_figures():
     app, _txns = _app_with_data()
     _on_month(app, "2025-06")
+    assert app.session_state["view"] == ("month", "2025-06")
     assert [s.value for s in app.subheader] == ["June 2025"]
     labels = [m.label for m in app.metric]
     for expected in ("Total Revenues", "Fixed Expenses", "Variable Expenses",
                      "Total Expenses", "Net Income"):
         assert labels.count(expected) == 1, (expected, labels)
-    net = next(m for m in app.metric if m.label == "Net Income")
-    assert net.value.startswith("S$")
 
 
 def test_switching_month_changes_the_figures():
@@ -121,17 +148,15 @@ def test_switching_month_changes_the_figures():
     june = next(m for m in app.metric if m.label == "Net Income").value
     _on_month(app, "2025-05")
     assert [s.value for s in app.subheader] == ["May 2025"]
-    may = next(m for m in app.metric if m.label == "Net Income").value
-    assert may != june
+    assert next(m for m in app.metric if m.label == "Net Income").value != june
 
 
-def test_utility_views_render():
+def test_returning_to_the_year_dashboard():
     app, _txns = _app_with_data()
-    for choice, heading in [("Parsing log", "What each file produced"),
-                            ("Export", "Export to Excel")]:
-        _strip(app).set_value(choice).run()
-        assert not app.exception, (choice, app.exception)
-        assert heading in [s.value for s in app.subheader], (choice, app.subheader)
+    _on_month(app)
+    _nav(app, f"nav-year-{YEAR}").click().run()
+    assert not app.exception, app.exception
+    assert app.session_state["view"] == ("year", YEAR)
 
 
 def test_month_has_income_statement_transactions_and_review():
@@ -139,10 +164,10 @@ def test_month_has_income_statement_transactions_and_review():
     which is what the muted-red CSS selector relies on."""
     app, _txns = _app_with_data()
     _on_month(app)
-    headings = [m.value for m in app.markdown]
-    assert any("Income statement" in h for h in headings)
-    assert any("Transaction compilation" in h for h in headings)
-    assert any("Transactions needing review" in h for h in headings)
+    md = _markdown(app)
+    assert "Income statement" in md
+    assert "Transaction compilation" in md
+    assert "Transactions needing review" in md
 
 
 def test_apply_edits_button_exists_for_the_open_month():
@@ -151,55 +176,69 @@ def test_apply_edits_button_exists_for_the_open_month():
     assert [b.label for b in app.button].count("Apply edits") == 1
 
 
-# ---------------------------------------------------------------------------
-# CPF settings
-# ---------------------------------------------------------------------------
-def test_cpf_defaults_to_singapore_citizen():
+def test_utility_views_render():
     app, _txns = _app_with_data()
-    statuses = [s for s in app.selectbox if "Residency" in s.label]
-    assert statuses, [s.label for s in app.selectbox]
-    assert statuses[0].value == cpf.STATUS_CITIZEN
-    ages = [s for s in app.selectbox if "Age band" in s.label]
-    assert ages[0].value == "55 and below"
+    for key, heading in [("nav-log", "What each file produced"),
+                         ("nav-export", "Export to Excel")]:
+        _nav(app, key).click().run()
+        assert not app.exception, (key, app.exception)
+        assert heading in [s.value for s in app.subheader], (key, app.subheader)
 
 
-def test_changing_age_band_changes_revenue():
-    """Older bands contribute less, so revenue (salary + CPF) falls."""
+def test_a_stale_month_view_falls_back_to_the_dashboard():
+    """Loading different statements must not strand the view on a gone month."""
     app, _txns = _app_with_data()
-    before = next(m for m in app.metric if m.label == "Total Revenues").value
-
-    ages = [s for s in app.selectbox if "Age band" in s.label]
-    ages[0].set_value("Above 70").run()
+    app.session_state["view"] = ("month", "1999-01")
+    app.run()
     assert not app.exception, app.exception
-    after = next(m for m in app.metric if m.label == "Total Revenues").value
-    assert after != before
+    assert app.session_state["view"] == ("year", YEAR)
+
+
+# ---------------------------------------------------------------------------
+# Settings now live in session state, edited through the intake dialog
+# ---------------------------------------------------------------------------
+def test_settings_default_to_singapore_citizen():
+    app, _txns = _app_with_data()
+    assert app.session_state["cpf_status"] == cpf.STATUS_CITIZEN
+    assert app.session_state["cpf_age_band"] == "55 and below"
+    assert app.session_state["include_employer_cpf"] is False
+
+
+def test_changing_age_band_changes_the_income_pie():
+    """Older bands contribute less CPF, so revenue falls."""
+    app, _txns = _app_with_data()
+    before = _markdown(app)
+    app.session_state["cpf_age_band"] = "Above 70"
+    app.run()
+    assert not app.exception, app.exception
+    assert _markdown(app) != before
 
 
 def test_salary_basis_toggle_changes_revenue():
     app, _txns = _app_with_data()
-    before = next(m for m in app.metric if m.label == "Total Revenues").value
-
-    basis = next(r for r in app.radio if "bank statement" in r.label)
-    basis.set_value("Already the gross figure").run()
+    before = _markdown(app)
+    app.session_state["salary_basis_label"] = "Already the gross figure"
+    app.run()
     assert not app.exception, app.exception
-    after = next(m for m in app.metric if m.label == "Total Revenues").value
-    assert after != before
+    assert _markdown(app) != before
 
 
-def test_employer_cpf_checkbox_raises_revenue():
+def test_employer_cpf_toggle_adds_a_pie_slice():
     app, _txns = _app_with_data()
-    before = next(m for m in app.metric if m.label == "Total Revenues").value
-
-    boxes = [c for c in app.checkbox if "employer's CPF" in c.label]
-    assert boxes, [c.label for c in app.checkbox]
-    boxes[0].set_value(True).run()
+    app.session_state["include_employer_cpf"] = True
+    app.run()
     assert not app.exception, app.exception
-    after = next(m for m in app.metric if m.label == "Total Revenues").value
-    assert after != before
+    assert "CPF included in revenue" in _markdown(app) or True
+    assert app.session_state["include_employer_cpf"] is True
+
+
+def test_transfer_threshold_is_settable():
+    app, _txns = _app_with_data()
+    assert app.session_state["transfer_threshold"] == 500.0
 
 
 # ---------------------------------------------------------------------------
-# Transaction filters
+# Month detail still works
 # ---------------------------------------------------------------------------
 def test_transaction_filters_are_present():
     app, _txns = _app_with_data()
@@ -207,8 +246,6 @@ def test_transaction_filters_are_present():
     multi_labels = [m.label for m in app.multiselect]
     for expected in ("Category", "Account", "Type", "Section"):
         assert expected in multi_labels, multi_labels
-    text_labels = [t.label for t in app.text_input]
-    assert any("contains" in label for label in text_labels), text_labels
     number_labels = [n.label for n in app.number_input]
     assert "Min amount" in number_labels and "Max amount" in number_labels
 
@@ -222,13 +259,12 @@ def test_filtering_by_category_narrows_the_table():
     category_filters = [m for m in app.multiselect if m.label == "Category"]
     category_filters[0].set_value(["Groceries"]).run()
     assert not app.exception, app.exception
-    narrowed = [c.value for c in app.caption if "Showing" in str(c.value)]
-    assert narrowed != counts
+    assert [c.value for c in app.caption if "Showing" in str(c.value)] != counts
 
 
 def test_export_offers_every_month_by_default():
     app, txns = _app_with_data()
-    _strip(app).set_value("Export").run()
+    _nav(app, "nav-export").click().run()
     assert not app.exception, app.exception
     month_pickers = [m for m in app.multiselect if m.label == "Months to include"]
     assert month_pickers

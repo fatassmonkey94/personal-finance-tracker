@@ -571,3 +571,156 @@ def monthly_trend(transactions: List[Transaction], salary_basis: str = BASIS_NET
         "Month", "Total Revenues", "Fixed Expenses", "Variable Expenses",
         "Total Expenses", "Net Income", "Savings Rate",
     ])
+
+
+# ---------------------------------------------------------------------------
+# Dashboard data: the year/month tree, the three pies, and the YTD series
+# ---------------------------------------------------------------------------
+def years_with_months(transactions: List[Transaction]) -> "dict":
+    """{'2026': ['2026-04', '2026-05', '2026-06'], …}, newest year first."""
+    tree: "dict" = {}
+    for month_key in available_months(transactions):
+        tree.setdefault(month_key.split("-")[0], []).append(month_key)
+    return dict(sorted(tree.items(), reverse=True))
+
+
+def months_in_year(transactions: List[Transaction], year: str) -> List[str]:
+    return [m for m in available_months(transactions) if m.startswith(f"{year}-")]
+
+
+def income_breakdown(transactions: List[Transaction], months: List[str],
+                     salary_basis: str = BASIS_NET,
+                     cpf_status: str = cpf.STATUS_CITIZEN,
+                     cpf_age_band: str = "55 and below",
+                     include_employer_cpf: bool = False) -> pd.DataFrame:
+    """Revenue split by source — what the Income pie shows."""
+    salary = cpf_employee = cpf_employer = additional = 0.0
+    for month_key in months:
+        pnl = build_pnl(transactions, month_key, salary_basis, cpf_status,
+                        cpf_age_band, include_employer_cpf)
+        salary += pnl.salary_credited
+        cpf_employee += pnl.cpf_employee
+        cpf_employer += pnl.cpf_employer
+        additional += pnl.additional_income
+
+    rows = [
+        ("Salary credited", round(salary, 2)),
+        ("CPF — employee share", round(cpf_employee, 2)),
+        ("Additional income", round(additional, 2)),
+    ]
+    if include_employer_cpf:
+        rows.insert(2, ("CPF — employer share", round(cpf_employer, 2)))
+    frame = pd.DataFrame(rows, columns=["Source", "Amount"])
+    return frame[frame["Amount"] != 0].reset_index(drop=True)
+
+
+def expense_breakdown(transactions: List[Transaction],
+                      months: List[str]) -> pd.DataFrame:
+    """Expenses by category, tagged Fixed or Variable — the Expenses pie."""
+    rows = []
+    month_txns = [t for t in transactions if t.month in months]
+    for section, categories in ((FIXED, FIXED_CATEGORIES),
+                                (VARIABLE, VARIABLE_CATEGORIES)):
+        for category in categories:
+            amount = _net(month_txns, category, expense=True)
+            if amount:
+                rows.append({
+                    "Category": category,
+                    "Section": "Fixed" if section == FIXED else "Variable",
+                    "Amount": amount,
+                })
+    frame = pd.DataFrame(rows, columns=["Category", "Section", "Amount"])
+    if frame.empty:
+        return frame
+    # A negative category (a refund with no matching spend) cannot be a slice of
+    # a pie; report it separately rather than drawing a negative wedge.
+    return frame.sort_values("Amount", ascending=False).reset_index(drop=True)
+
+
+def savings_split(transactions: List[Transaction], months: List[str],
+                  salary_basis: str = BASIS_NET,
+                  cpf_status: str = cpf.STATUS_CITIZEN,
+                  cpf_age_band: str = "55 and below",
+                  include_employer_cpf: bool = False) -> pd.DataFrame:
+    """Revenue divided into what was kept and what was spent — the Savings pie.
+
+    Savings is one number, so the honest pie is the whole of revenue split in
+    two: a wedge for the part kept and a wedge for the part spent.
+    """
+    revenue = expenses = 0.0
+    for month_key in months:
+        pnl = build_pnl(transactions, month_key, salary_basis, cpf_status,
+                        cpf_age_band, include_employer_cpf)
+        revenue += pnl.total_revenue
+        expenses += pnl.total_expenses
+    kept = round(revenue - expenses, 2)
+    frame = pd.DataFrame(
+        [("Saved", kept), ("Spent", round(expenses, 2))],
+        columns=["Part", "Amount"],
+    )
+    return frame[frame["Amount"] > 0].reset_index(drop=True)
+
+
+def ytd_series(transactions: List[Transaction], months: List[str],
+               salary_basis: str = BASIS_NET,
+               cpf_status: str = cpf.STATUS_CITIZEN,
+               cpf_age_band: str = "55 and below",
+               include_employer_cpf: bool = False) -> pd.DataFrame:
+    """Long-form month x measure for the year-to-date dot plot.
+
+    Only months that carry data appear. Padding the year out to twelve rows
+    would draw a zero for a month whose statements simply are not loaded, which
+    reads as "earned nothing" rather than "not known".
+    """
+    rows = []
+    for order, month_key in enumerate(months):
+        pnl = build_pnl(transactions, month_key, salary_basis, cpf_status,
+                        cpf_age_band, include_employer_cpf)
+        for measure, amount in (("Income", pnl.total_revenue),
+                                ("Expenses", pnl.total_expenses),
+                                ("Savings", pnl.net_income)):
+            rows.append({
+                "Month": month_key,
+                "MonthLabel": month_short(month_key),
+                "Order": order,
+                "Measure": measure,
+                "Amount": amount,
+            })
+    return pd.DataFrame(rows, columns=[
+        "Month", "MonthLabel", "Order", "Measure", "Amount",
+    ])
+
+
+def trendlines(series: pd.DataFrame) -> pd.DataFrame:
+    """Least-squares fit per measure, as endpoints ready to draw.
+
+    Altair's `loess`/`regression` transforms need a quantitative x; the dot plot
+    uses an ordinal month axis, so the fit is computed here against the month's
+    ordinal position and returned as two points per measure.
+    """
+    if series.empty:
+        return pd.DataFrame(columns=["Measure", "Order", "MonthLabel", "Fit"])
+    rows = []
+    for measure, group in series.groupby("Measure"):
+        group = group.sort_values("Order")
+        xs = group["Order"].tolist()
+        ys = group["Amount"].tolist()
+        n = len(xs)
+        if n < 2:
+            continue
+        mean_x = sum(xs) / n
+        mean_y = sum(ys) / n
+        denominator = sum((x - mean_x) ** 2 for x in xs)
+        if denominator == 0:
+            continue
+        slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / denominator
+        intercept = mean_y - slope * mean_x
+        for x in (xs[0], xs[-1]):
+            label = group.loc[group["Order"] == x, "MonthLabel"].iloc[0]
+            rows.append({
+                "Measure": measure,
+                "Order": x,
+                "MonthLabel": label,
+                "Fit": round(slope * x + intercept, 2),
+            })
+    return pd.DataFrame(rows, columns=["Measure", "Order", "MonthLabel", "Fit"])

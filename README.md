@@ -21,10 +21,12 @@ network calls in the app.
 That creates the virtual environment on first run, installs dependencies, and
 opens the app in your browser.
 
-You can either drag statements onto the uploader, or — under *"…or read them
-straight off this machine"* — point it at the folder you save statements into,
-which saves picking files by hand every month. To have that folder loaded
-before the page even opens:
+**Add statements** — the green button at the top right — opens a form holding
+everything you feed the app: drag statements onto the uploader, or, under *"…or
+read them straight off this machine"*, point it at the folder you save
+statements into, which saves picking files by hand every month. The same form
+carries the CPF and categorisation settings, so the page itself stays given over
+to your numbers. To have a folder loaded before the page even opens:
 
 ```bash
 PFT_STATEMENTS=~/Downloads/statements ./run.sh
@@ -65,7 +67,8 @@ off-VPN.
 holds `parent_names.txt` and the learned category fixes in
 `category_overrides.json`. Both are derived from your own statements, so they
 are gitignored and stay on the machine that made them. On a new machine, retype
-the allowance names in the sidebar once; the file is written for you. Your
+the allowance names once under **Add statements → Categorisation**; the file is
+written for you. Your
 statements are never in the repo either — keep them wherever you like and point
 the loader at that folder.
 
@@ -106,7 +109,8 @@ The brief allows for a PDF that carries only descriptions and amounts. When a
 line has no date, it is dated to the **end of the statement period** (detected
 from "Statement Date" or "Statement Period" in the document), flagged with a 📅
 in the compilation, and counted in the note at the foot of the income statement.
-Set a fallback month in the sidebar if a PDF has no detectable period either.
+Set a fallback month under **Add statements → Statements** if a PDF has no
+detectable period either.
 
 ---
 
@@ -163,31 +167,38 @@ EXPENSES
 NET INCOME  = Total Revenues - (Fixed Expenses + Variable Expenses)
 ```
 
-Export both sheets, for one month or several, as a formatted `.xlsx` from the
-Export tab.
+Export both sheets, for one month or several, as a formatted `.xlsx` from
+**Export** in the sidebar.
 
 ---
 
 ## Getting around the app
 
-The strip across the top runs **Overview · <each month> · Parsing log · Export**.
+The sidebar is the whole navigation: **each year, expanding to its months**, then
+Parsing log and Export under *Tools*. A month button carries its own review count
+("May · 25 to review"), so you can see where the work is without opening anything.
 
-### Overview — the landing page
+### The dashboard — the landing page
 
-An annual read of everything loaded, in this order:
+Selecting a year gives an annual read of everything loaded for it:
 
-1. **Headline figures** — total revenues, total expenses, net income with savings
-   rate, and the monthly averages.
-2. **Spending by category, month on month** — a connected dot plot. Each category
-   is a row, each month a dot, and the dots are joined so the line itself shows
-   the direction of travel. Categories are ordered by total spend, and a zero rule
-   marks where a category has gone negative (a refund with no matching spend).
-   Month colour runs dark-to-bright with time, so the newest reading is the
-   brightest dot.
-3. **Revenues, expenses and net income** as three trajectories, beside a
-   **fixed vs variable** stack.
-4. **Month by month** as a table, then notes on anything still needing review and
-   on the transfers held outside the totals.
+1. **Three pies.** *Income* split by source (salary credited, your CPF
+   contribution, additional income), *Expenses* split by category with the fixed
+   ones in cool tones and the variable ones warm, and *Savings* as what was kept
+   against what was spent, captioned with the savings rate. A category that nets
+   negative over the year — a refund larger than the spend — cannot be drawn as a
+   wedge, so it is named in a caption beneath rather than quietly folded in.
+2. **Year to date, month on month** — income, expenses and savings as dots, three
+   per month, each measure with a dashed least-squares trendline through it, so a
+   drift you would not see in a single month is visible. Months run along the x
+   axis and amounts up the y, with a zero rule where savings cross into negative.
+   Only months carrying data are drawn: padding the year out to twelve would put a
+   zero against a month whose statements simply are not loaded, which reads as
+   "earned nothing" rather than "not known".
+3. **More annual detail**, collapsed — the connected dot plot of spending by
+   category (each category a row, each month a dot, joined so the line shows the
+   direction of travel), the month-by-month table, and notes on anything still
+   needing review and on the transfers held outside the totals.
 
 ### A month
 
@@ -217,8 +228,10 @@ The typeface is **Space Grotesk** — neutral in tone, angular in its terminals 
 geometric in its bowls — with **JetBrains Mono** for code. Both are self-hosted
 from `static/fonts/` (about 72 KB), so the app makes no request to a font CDN and
 works offline. Theme colours, fonts and the chart palette live in
-`.streamlit/config.toml`; only what Streamlit exposes no API for (the tab-styled
-view strip, the red Review tab) is done in CSS.
+`.streamlit/config.toml`; only what Streamlit exposes no API for (the header
+button's green, the red Review tab) is done in CSS — and that CSS is scoped to
+the one container it belongs to, so the Review tint cannot leak onto the third
+tab of some unrelated group.
 
 ---
 
@@ -230,8 +243,8 @@ per your rules — but only up to a threshold, S$500 by default. Above that the
 guess is too consequential to make silently: a S$24,000 PayNow is not a
 restaurant bill, and a S$26,000 inbound transfer is not salary. Those are tagged
 *Unclassified Transfer*, listed below the income statement with a total, and
-counted normally the moment you assign a category. Set the threshold to 0 in the
-sidebar to follow your rule literally in every case.
+counted normally the moment you assign a category. Set the threshold to 0 under **Add
+statements → Categorisation** to follow your rule literally in every case.
 
 **Transfers to and from investment accounts are excluded.** Funding a brokerage
 or exchange account is not an expense, and withdrawing from one is not income —
@@ -259,7 +272,7 @@ flat percentage wrong, and both applied to real statements:
   employee share phases in as 0.6 × (wages − 500).
 
 Rates come from CPF Board's rate table and step down with age — 37% total / 20%
-employee at 55 and below, through to 12.5% / 5% above 70. The sidebar defaults to
+employee at 55 and below, through to 12.5% / 5% above 70. The form defaults to
 **Singapore Citizen** (CPF Board's Table 1, which also covers PRs from their 3rd
 year); the SPR graduated tables are selectable. Rounding follows the Board's
 stated steps: total to the nearest dollar, employee share rounded down, employer
@@ -269,7 +282,7 @@ share the difference. `tests/test_cpf.py` asserts every figure against the
 **Where the salary figure comes from.** A Singapore salary credit is normally
 *net* of your own CPF, so by default the app treats the bank credit as take-home
 and works the gross back from it — which makes *Salary credited + CPF = true
-gross pay*. Switch the sidebar to "Already the gross figure" to treat the credit
+gross pay*. Switch to "Already the gross figure" to treat the credit
 as gross and add CPF on top, the literal reading of the original brief. The
 employer's 17% share is available as an extra revenue line, off by default.
 
@@ -291,7 +304,7 @@ so no categorisation is a black box.
 
 Specific behaviours from your brief:
 
-- **Allowance to parents** — transfers naming whoever you list in the sidebar. No
+- **Allowance to parents** — transfers naming whoever you list in the form. No
   names ship in source; yours are kept in `data/parent_names.txt`, which is
   gitignored, so real names never reach the repository.
 - **PayNow / transfers out** — booked to *Food & Dining* as you specified, but
@@ -330,7 +343,7 @@ finance/
   export_excel.py         formatted .xlsx writer
 make_samples.py           generates sample statements
 static/fonts/             self-hosted Space Grotesk + JetBrains Mono
-tests/                    228 tests, incl. CPF and real-statement regressions
+tests/                    249 tests, incl. CPF and real-statement regressions
 ```
 
 Duplicate uploads are detected: exact repeats are dropped, and the same amount
